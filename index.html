@@ -14,6 +14,29 @@
       small { color: #555; }
       pre { background: #0b1020; color: #e6e6e6; padding: 12px; border-radius: 12px; overflow: auto; }
       input { padding: 8px; width: 420px; max-width: 100%; }
+
+      .play-btn {
+        padding: 6px 14px;
+        border: 1px solid #ccc;
+        border-radius: 500px;
+        background: #f5f5f5;
+        cursor: pointer;
+        font-size: 13px;
+        transition: all 0.2s;
+      }
+      .play-btn:hover { background: #e0e0e0; }
+      .play-btn.playing {
+        background: #1db954;
+        color: white;
+        border-color: #1db954;
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(29,185,84,0.4); }
+        50% { box-shadow: 0 0 0 8px rgba(29,185,84,0); }
+      }
+      .track-row { padding: 10px; border-bottom: 1px solid #eee; display: flex; gap: 12px; align-items: center; }
+      .track-row.active-track { background: #f0faf4; }
     </style>
   </head>
 
@@ -74,22 +97,20 @@
 
       let currentAudio = null;
 
+      function clearActiveTrack() {
+        const prevBtn = document.querySelector('.play-btn.playing');
+        if (prevBtn) {
+          prevBtn.classList.remove('playing');
+          prevBtn.innerHTML = '&#9654; Play 30s';
+        }
+        document.querySelectorAll('.track-row.active-track').forEach(r => r.classList.remove('active-track'));
+      }
+
       function playPreview(url, btn) {
         if (!url) return;
-        if (currentAudio && !currentAudio.paused) {
-          currentAudio.pause();
-          const prevBtn = document.querySelector('.playing');
-          if (prevBtn) prevBtn.classList.remove('playing');
-        }
-
-        if (currentAudio && currentAudio.src === url && currentAudio.paused) {
-          currentAudio.play();
-          if (btn) btn.classList.add('playing');
-          return;
-        }
-
         if (currentAudio) {
           currentAudio.pause();
+          clearActiveTrack();
         }
 
         currentAudio = new Audio(url);
@@ -97,7 +118,7 @@
         if (btn) btn.classList.add('playing');
 
         currentAudio.onended = () => {
-          if (btn) btn.classList.remove('playing');
+          clearActiveTrack();
         };
       }
 
@@ -139,12 +160,16 @@
           // Build track list with preview buttons
           const trackHTML = data.tracks.map((t, i) => {
             const previewUrl = t.deezer?.preview ? `/api/preview-proxy?url=${encodeURIComponent(t.deezer.preview)}` : null;
-            const playBtn = previewUrl ? `<button class="play-btn" data-preview="${previewUrl}">▶ Play 30s</button>` : `<small style="color:#999">No preview</small>`;
+            const matchInfo = t.deezer ? `Matched: ${t.deezer.artist} – ${t.deezer.title}` : '';
+            const playBtn = previewUrl
+              ? `<button class="play-btn" data-preview="${previewUrl}" data-idx="${i}">&#9654; Play 30s</button>`
+              : `<small style="color:#999">No preview</small>`;
             return `
-              <div style="padding:10px; border-bottom:1px solid #eee; display:flex; gap:12px; align-items:center;">
+              <div class="track-row" data-row="${i}">
                 <div style="flex:1">
                   <div><b>${i+1}. ${t.name}</b></div>
                   <div><small>${t.artists}</small></div>
+                  ${matchInfo ? `<div><small style="color:#1db954">${matchInfo}</small></div>` : ''}
                 </div>
                 <div style="width:140px; text-align:right">${playBtn}</div>
               </div>
@@ -157,12 +182,19 @@
           document.querySelectorAll('.play-btn').forEach(btn => {
             btn.addEventListener('click', () => {
               const url = btn.getAttribute('data-preview');
+              const idx = btn.getAttribute('data-idx');
+
               // toggle play/pause
               if (btn.classList.contains('playing')) {
                 if (currentAudio) currentAudio.pause();
-                btn.classList.remove('playing');
+                clearActiveTrack();
               } else {
+                clearActiveTrack();
                 playPreview(url, btn);
+                // highlight the row
+                const row = document.querySelector(`.track-row[data-row="${idx}"]`);
+                if (row) row.classList.add('active-track');
+                btn.innerHTML = '&#9646;&#9646; Playing';
               }
             });
           });
