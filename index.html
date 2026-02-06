@@ -18,337 +18,125 @@
   </head>
 
   <body>
-    <h1>Spotify Login → Playlists (PKCE)</h1>
+    <h1>🎵 YouTube Music Playlist Viewer</h1>
 
     <div class="card">
-      <div>
-        <label>Client ID:</label><br/>
-        <input id="clientId" placeholder="Paste your Spotify Client ID" />
+      <label for="playlistLink" style="display: block; margin-bottom: 8px; font-weight: bold;">
+        Paste a YouTube Music Playlist Link:
+      </label>
+      <input 
+        id="playlistLink" 
+        type="text" 
+        placeholder="https://music.youtube.com/playlist?list=..." 
+        style="width: 100%; max-width: none;"
+      />
+      <div style="margin-top: 12px;">
+        <button id="fetchBtn" style="
+          background: #FF0000;
+          color: white;
+          padding: 12px 24px;
+          border: none;
+          border-radius: 500px;
+          font-weight: bold;
+          cursor: pointer;
+          font-size: 14px;
+          transition: background 0.2s;
+        " onmouseover="this.style.background='#cc0000'" onmouseout="this.style.background='#FF0000'">
+          🔍 Load Playlist
+        </button>
       </div>
-      <div style="margin-top:10px;">
-        <small>
-          Redirect URI configured in Spotify dashboard must match:
-          <code id="redirectUri"></code>
-        </small>
-      </div>
-      <div style="margin-top:12px;">
-        <button id="loginBtn">Log in with Spotify</button>
-        <button id="logoutBtn">Log out</button>
-        <button id="loadBtn">Load profile + playlists</button>
-      </div>
-      <div style="margin-top:12px;">
-        <small>Status: <span id="status">not logged in</span></small>
-      </div>
-    </div>
-
-    <div class="row" style="margin-top:18px;">
-      <div class="card">
-        <h2>Profile</h2>
-        <div id="profile"></div>
-      </div>
-
-      <div class="card">
-        <h2>Playlists</h2>
-        <div id="playlists"></div>
+      <div style="margin-top: 12px;">
+        <small id="status" style="color: #666;">Ready to load a playlist</small>
       </div>
     </div>
 
-    <div class="card" style="margin-top:18px;">
-      <h2>Debug</h2>
-      <pre id="debug"></pre>
+    <div class="card" style="margin-top: 18px;">
+      <h2>Playlist Info</h2>
+      <div id="playlistInfo"></div>
+    </div>
+
+    <div class="card" style="margin-top: 18px;">
+      <h2>Tracks</h2>
+      <div id="tracksList"></div>
     </div>
 
     <script type="module">
-      // ====== CONFIG ======
-      const redirectUri = window.location.origin + "/"; // e.g., http://localhost:8080/
-      document.getElementById("redirectUri").textContent = redirectUri;
-
-      // Scopes needed to read playlists + basic profile
-      // You can add/remove scopes as needed.
-      const scopes = [
-        "user-read-email",
-        "playlist-read-private",
-        "playlist-read-collaborative",
-      ].join(" ");
-
-      const AUTH_URL = "https://accounts.spotify.com/authorize";
-      const TOKEN_URL = "https://accounts.spotify.com/api/token";
-      const API_BASE = "https://api.spotify.com/v1";
-
-      // ====== UI helpers ======
       const $ = (id) => document.getElementById(id);
-      const setStatus = (t) => ($("status").textContent = t);
-      const setDebug = (obj) => ($("debug").textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2));
 
-      // ====== PKCE helpers ======
-      function randomString(length = 64) {
-        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-        let s = "";
-        const bytes = crypto.getRandomValues(new Uint8Array(length));
-        for (let i = 0; i < bytes.length; i++) s += chars[bytes[i] % chars.length];
-        return s;
+      function extractPlaylistId(url) {
+        // Extract playlist ID from: https://music.youtube.com/playlist?list=PLxxxxxx
+        const match = url.match(/list=([a-zA-Z0-9_-]+)/);
+        return match ? match[1] : null;
       }
 
-      async function sha256(plain) {
-        const enc = new TextEncoder();
-        const data = enc.encode(plain);
-        const hash = await crypto.subtle.digest("SHA-256", data);
-        return new Uint8Array(hash);
+      function setStatus(msg) {
+        $("status").textContent = msg;
       }
 
-      function base64urlEncode(bytes) {
-        // bytes: Uint8Array
-        let binary = "";
-        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-        return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-      }
-
-      async function makeCodeChallenge(verifier) {
-        const hashed = await sha256(verifier);
-        return base64urlEncode(hashed);
-      }
-
-      // ====== Token storage ======
-      const storageKey = "spotify_pkce_demo_token";
-
-      function loadToken() {
-        const raw = localStorage.getItem(storageKey);
-        if (!raw) return null;
-        try { return JSON.parse(raw); } catch { return null; }
-      }
-
-      function saveToken(token) {
-        localStorage.setItem(storageKey, JSON.stringify(token));
-      }
-
-      function clearToken() {
-        localStorage.removeItem(storageKey);
-      }
-
-      function isExpired(token) {
-        if (!token?.expires_at) return true;
-        return Date.now() > token.expires_at - 60_000; // refresh 60s early
-      }
-
-      // ====== OAuth flow ======
-      async function login() {
-        const clientId = $("clientId").value.trim();
-        if (!clientId) {
-          alert("Paste your Spotify Client ID first.");
-          return;
-        }
-        localStorage.setItem("spotify_client_id", clientId);
-
-        const verifier = randomString(64);
-        localStorage.setItem("pkce_verifier", verifier);
-
-        const challenge = await makeCodeChallenge(verifier);
-        const state = randomString(16);
-        localStorage.setItem("oauth_state", state);
-
-        const params = new URLSearchParams({
-          response_type: "code",
-          client_id: clientId,
-          scope: scopes,
-          redirect_uri: redirectUri,
-          state,
-          code_challenge_method: "S256",
-          code_challenge: challenge,
-        });
-
-        window.location.href = `${AUTH_URL}?${params.toString()}`;
-      }
-
-      async function exchangeCodeForToken(code) {
-        const clientId = localStorage.getItem("spotify_client_id") || $("clientId").value.trim();
-        const verifier = localStorage.getItem("pkce_verifier");
-        if (!clientId || !verifier) throw new Error("Missing clientId or PKCE verifier; try logging in again.");
-
-        const body = new URLSearchParams({
-          client_id: clientId,
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: redirectUri,
-          code_verifier: verifier,
-        });
-
-        const resp = await fetch(TOKEN_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body,
-        });
-
-        if (!resp.ok) {
-          const errText = await resp.text();
-          throw new Error(`Token exchange failed: ${resp.status} ${errText}`);
-        }
-
-        const data = await resp.json();
-        const token = {
-          access_token: data.access_token,
-          refresh_token: data.refresh_token, // usually only returned on first exchange
-          expires_in: data.expires_in,
-          token_type: data.token_type,
-          scope: data.scope,
-          expires_at: Date.now() + (data.expires_in * 1000),
-        };
-
-        saveToken(token);
-        return token;
-      }
-
-      async function refreshAccessToken(refreshToken) {
-        const clientId = localStorage.getItem("spotify_client_id") || $("clientId").value.trim();
-        if (!clientId) throw new Error("Missing clientId.");
-
-        const body = new URLSearchParams({
-          client_id: clientId,
-          grant_type: "refresh_token",
-          refresh_token: refreshToken,
-        });
-
-        const resp = await fetch(TOKEN_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body,
-        });
-
-        if (!resp.ok) {
-          const errText = await resp.text();
-          throw new Error(`Token refresh failed: ${resp.status} ${errText}`);
-        }
-
-        const data = await resp.json();
-        const existing = loadToken() || {};
-
-        const updated = {
-          ...existing,
-          access_token: data.access_token,
-          expires_in: data.expires_in,
-          expires_at: Date.now() + (data.expires_in * 1000),
-          // refresh_token may not be returned on refresh
-          refresh_token: existing.refresh_token,
-        };
-
-        saveToken(updated);
-        return updated;
-      }
-
-      async function getValidAccessToken() {
-        let token = loadToken();
-        if (!token) throw new Error("Not logged in.");
-
-        if (isExpired(token)) {
-          if (!token.refresh_token) throw new Error("Token expired and no refresh_token available. Log in again.");
-          token = await refreshAccessToken(token.refresh_token);
-        }
-        return token.access_token;
-      }
-
-      // ====== Spotify API calls ======
-      async function apiGet(path) {
-        const accessToken = await getValidAccessToken();
-        const resp = await fetch(`${API_BASE}${path}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!resp.ok) {
-          const errText = await resp.text();
-          throw new Error(`Spotify API error ${resp.status}: ${errText}`);
-        }
-        return resp.json();
-      }
-
-      async function loadProfileAndPlaylists() {
-        setStatus("loading…");
-        const me = await apiGet("/me");
-        const playlists = await apiGet("/me/playlists?limit=50");
-
-        $("profile").innerHTML = `
-          <div><b>${me.display_name ?? "(no name)"}</b></div>
-          <div><small>${me.email ?? ""}</small></div>
-          <div><small>id: ${me.id}</small></div>
-        `;
-
-        const items = playlists.items || [];
-        $("playlists").innerHTML = items.length
-          ? `<ul>${items.map(p => `<li><b>${escapeHtml(p.name)}</b><br/><small>${p.tracks?.total ?? 0} tracks • id: ${p.id}</small></li>`).join("")}</ul>`
-          : "<div>No playlists found.</div>";
-
-        setDebug({ me, playlists });
-        setStatus("logged in");
-      }
-
-      function escapeHtml(s) {
-        return (s ?? "").replace(/[&<>"']/g, (c) => ({
-          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-        }[c]));
-      }
-
-      // ====== Handle redirect callback ======
-      async function handleCallbackIfPresent() {
-        const params = new URLSearchParams(window.location.search);
-        const code = params.get("code");
-        const state = params.get("state");
-        const error = params.get("error");
-
-        if (error) {
-          setStatus("error");
-          setDebug({ error, description: params.get("error_description") });
+      $("fetchBtn").onclick = async () => {
+        const link = $("playlistLink").value.trim();
+        if (!link) {
+          setStatus("❌ Paste a YouTube Music playlist link");
           return;
         }
 
-        if (!code) return;
-
-        // Validate state
-        const expectedState = localStorage.getItem("oauth_state");
-        if (!state || state !== expectedState) {
-          setStatus("error");
-          setDebug("State mismatch. Possible CSRF or bad redirect.");
+        const playlistId = extractPlaylistId(link);
+        if (!playlistId) {
+          setStatus("❌ Invalid YouTube Music playlist link");
           return;
         }
 
         try {
-          setStatus("exchanging code…");
-          await exchangeCodeForToken(code);
-          // Clean URL
-          window.history.replaceState({}, document.title, window.location.pathname);
-          setStatus("token acquired");
-        } catch (e) {
-          setStatus("error");
-          setDebug(String(e));
-        }
-      }
+          setStatus("⏳ Loading playlist...");
+          const resp = await fetch(`/api/playlist/${playlistId}`);
+          
+          if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.error || `Error: ${resp.status}`);
+          }
 
-      // ====== Wire up buttons ======
-      $("loginBtn").onclick = login;
-      $("logoutBtn").onclick = () => {
-        clearToken();
-        localStorage.removeItem("pkce_verifier");
-        localStorage.removeItem("oauth_state");
-        setStatus("not logged in");
-        $("profile").innerHTML = "";
-        $("playlists").innerHTML = "";
-        setDebug("logged out");
+          const data = await resp.json();
+
+          // Display playlist info
+          const img = data.image ? `<img src="${data.image}" style="width: 150px; border-radius: 8px; margin-bottom: 12px;">` : "";
+          $("playlistInfo").innerHTML = `
+            ${img}
+            <div><b>${data.name}</b></div>
+            <div><small>${data.totalTracks} tracks</small></div>
+            ${data.description ? `<div style="margin-top: 8px; color: #666; font-size: 14px;">${data.description}</div>` : ""}
+          `;
+
+          // Display tracks
+          if (data.tracks.length === 0) {
+            $("tracksList").innerHTML = "<div>No tracks found</div>";
+          } else {
+            const trackHTML = data.tracks
+              .map((track, i) => {
+                const duration = track.duration || "0:00";
+                return `
+                  <div style="padding: 10px; border-bottom: 1px solid #eee;">
+                    <div><b>${i + 1}. ${track.name || "Unknown"}</b></div>
+                    <div><small>${track.artists || "Unknown Artist"}</small></div>
+                    <div><small style="color: #999;">${duration}</small></div>
+                  </div>
+                `;
+              })
+              .join("");
+            $("tracksList").innerHTML = trackHTML;
+          }
+
+          setStatus(`✅ Loaded ${data.tracks.length} tracks`);
+        } catch (error) {
+          setStatus(`❌ ${error.message}`);
+          $("playlistInfo").innerHTML = "";
+          $("tracksList").innerHTML = "";
+        }
       };
 
-      $("loadBtn").onclick = async () => {
-        try {
-          await loadProfileAndPlaylists();
-        } catch (e) {
-          setStatus("error");
-          setDebug(String(e));
-        }
-      };
-
-      // Restore client id if previously saved
-      const savedClientId = localStorage.getItem("spotify_client_id");
-      if (savedClientId) $("clientId").value = savedClientId;
-
-      // Kick off callback handling on load
-      await handleCallbackIfPresent();
-
-      // If already logged in, show status
-      if (loadToken()) setStatus("logged in (token cached)");
+      // Allow Enter key to trigger fetch
+      $("playlistLink").addEventListener("keypress", (e) => {
+        if (e.key === "Enter") $("fetchBtn").click();
+      });
     </script>
   </body>
 </html>
