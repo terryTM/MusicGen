@@ -4,6 +4,8 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 import dotenv from "dotenv";
 import ytpl from "ytpl";
+import https from "https";
+import http from "http";
 
 dotenv.config();
 
@@ -14,7 +16,20 @@ const __dirname = dirname(__filename);
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static(__dirname));
+app.use(express.static(__dirname, {
+  setHeaders: (res, path) => {
+    if (path.endsWith('.js')) {
+      res.setHeader('Content-Type', 'application/javascript');
+    }
+  }
+}));
+app.use('/node_modules', express.static(__dirname + '/node_modules', {
+  setHeaders: (res, path) => {
+    if (path.endsWith('.js')) {
+      res.setHeader('Content-Type', 'application/javascript');
+    }
+  }
+}));
 
 // Extract playlist ID from YouTube Music link
 function extractPlaylistId(url) {
@@ -51,6 +66,49 @@ async function getYouTubePlaylist(playlistId) {
     throw new Error(`Failed to fetch YouTube playlist: ${error.message}`);
   }
 }
+
+// Visualizer page route
+app.get('/visualize', (req, res) => {
+  res.sendFile(__dirname + '/visualize.html');
+});
+
+// Audio proxy endpoint to bypass CORS
+app.get('/api/proxy-audio', async (req, res) => {
+  const audioUrl = req.query.url;
+  
+  if (!audioUrl) {
+    return res.status(400).json({ error: 'No URL provided' });
+  }
+
+  try {
+    const urlObj = new URL(audioUrl);
+    const protocol = urlObj.protocol === 'https:' ? https : http;
+
+    protocol.get(audioUrl, (proxyRes) => {
+      // Forward headers
+      res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'audio/mpeg');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      
+      if (proxyRes.headers['content-length']) {
+        res.setHeader('Content-Length', proxyRes.headers['content-length']);
+      }
+      
+      // Enable range requests for seeking
+      if (proxyRes.headers['accept-ranges']) {
+        res.setHeader('Accept-Ranges', proxyRes.headers['accept-ranges']);
+      }
+
+      // Pipe the audio stream
+      proxyRes.pipe(res);
+    }).on('error', (err) => {
+      console.error('Proxy error:', err);
+      res.status(500).json({ error: 'Failed to fetch audio' });
+    });
+  } catch (error) {
+    console.error('Invalid URL:', error);
+    res.status(400).json({ error: 'Invalid URL' });
+  }
+});
 
 // Get YouTube Music playlist data
 app.get("/api/playlist/:id", async (req, res) => {
