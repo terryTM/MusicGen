@@ -64,13 +64,41 @@
       const $ = (id) => document.getElementById(id);
 
       function extractPlaylistId(url) {
-        // Extract playlist ID from: https://music.youtube.com/playlist?list=PLxxxxxx
         const match = url.match(/list=([a-zA-Z0-9_-]+)/);
         return match ? match[1] : null;
       }
 
       function setStatus(msg) {
         $("status").textContent = msg;
+      }
+
+      let currentAudio = null;
+
+      function playPreview(url, btn) {
+        if (!url) return;
+        if (currentAudio && !currentAudio.paused) {
+          currentAudio.pause();
+          const prevBtn = document.querySelector('.playing');
+          if (prevBtn) prevBtn.classList.remove('playing');
+        }
+
+        if (currentAudio && currentAudio.src === url && currentAudio.paused) {
+          currentAudio.play();
+          if (btn) btn.classList.add('playing');
+          return;
+        }
+
+        if (currentAudio) {
+          currentAudio.pause();
+        }
+
+        currentAudio = new Audio(url);
+        currentAudio.play().catch(() => {});
+        if (btn) btn.classList.add('playing');
+
+        currentAudio.onended = () => {
+          if (btn) btn.classList.remove('playing');
+        };
       }
 
       $("fetchBtn").onclick = async () => {
@@ -87,45 +115,59 @@
         }
 
         try {
-          setStatus("⏳ Loading playlist...");
-          const resp = await fetch(`/api/playlist/${playlistId}`);
-          
+          setStatus("⏳ Looking up previews (this may take a moment)...");
+          const resp = await fetch(`/api/playlist/${playlistId}/deezer-previews`);
           if (!resp.ok) {
-            const err = await resp.json();
+            const err = await resp.json().catch(() => ({}));
             throw new Error(err.error || `Error: ${resp.status}`);
           }
 
           const data = await resp.json();
 
-          // Display playlist info
-          const img = data.image ? `<img src="${data.image}" style="width: 150px; border-radius: 8px; margin-bottom: 12px;">` : "";
+          // Playlist info
           $("playlistInfo").innerHTML = `
-            ${img}
-            <div><b>${data.name}</b></div>
-            <div><small>${data.totalTracks} tracks</small></div>
-            ${data.description ? `<div style="margin-top: 8px; color: #666; font-size: 14px;">${data.description}</div>` : ""}
+            <div><b>${data.playlist.name}</b></div>
+            <div><small>${data.playlist.totalTracks} tracks</small></div>
           `;
 
-          // Display tracks
-          if (data.tracks.length === 0) {
+          if (!data.tracks || data.tracks.length === 0) {
             $("tracksList").innerHTML = "<div>No tracks found</div>";
-          } else {
-            const trackHTML = data.tracks
-              .map((track, i) => {
-                const duration = track.duration || "0:00";
-                return `
-                  <div style="padding: 10px; border-bottom: 1px solid #eee;">
-                    <div><b>${i + 1}. ${track.name || "Unknown"}</b></div>
-                    <div><small>${track.artists || "Unknown Artist"}</small></div>
-                    <div><small style="color: #999;">${duration}</small></div>
-                  </div>
-                `;
-              })
-              .join("");
-            $("tracksList").innerHTML = trackHTML;
+            setStatus('✅ No tracks');
+            return;
           }
 
-          setStatus(`✅ Loaded ${data.tracks.length} tracks`);
+          // Build track list with preview buttons
+          const trackHTML = data.tracks.map((t, i) => {
+            const previewUrl = t.deezer?.preview ? `/api/preview-proxy?url=${encodeURIComponent(t.deezer.preview)}` : null;
+            const playBtn = previewUrl ? `<button class="play-btn" data-preview="${previewUrl}">▶ Play 30s</button>` : `<small style="color:#999">No preview</small>`;
+            return `
+              <div style="padding:10px; border-bottom:1px solid #eee; display:flex; gap:12px; align-items:center;">
+                <div style="flex:1">
+                  <div><b>${i+1}. ${t.name}</b></div>
+                  <div><small>${t.artists}</small></div>
+                </div>
+                <div style="width:140px; text-align:right">${playBtn}</div>
+              </div>
+            `;
+          }).join('');
+
+          $("tracksList").innerHTML = trackHTML;
+
+          // Attach handlers
+          document.querySelectorAll('.play-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const url = btn.getAttribute('data-preview');
+              // toggle play/pause
+              if (btn.classList.contains('playing')) {
+                if (currentAudio) currentAudio.pause();
+                btn.classList.remove('playing');
+              } else {
+                playPreview(url, btn);
+              }
+            });
+          });
+
+          setStatus(`✅ Loaded ${data.tracks.length} tracks (previews attached where available)`);
         } catch (error) {
           setStatus(`❌ ${error.message}`);
           $("playlistInfo").innerHTML = "";
