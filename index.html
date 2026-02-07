@@ -4,6 +4,9 @@
     <meta charset="utf-8" />
     <title>MusicGen – Playlist Analyzer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
       :root { 
         --accent: #1db954; 
@@ -18,36 +21,43 @@
       }
       * { box-sizing: border-box; }
       body { 
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+        font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
         margin: 0; 
         padding: 32px;
         background: var(--bg);
         background-attachment: fixed;
         color: var(--text);
         min-height: 100vh;
+        line-height: 1.6;
+        font-weight: 400;
+        letter-spacing: -0.01em;
       }
       h1 { 
         margin-top: 0;
-        font-size: 2.5rem;
-        font-weight: 700;
-        background: linear-gradient(135deg, #e2e8f0, #cbd5e0);
+        font-size: 3rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #f8fafc, #e2e8f0);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
+        letter-spacing: -0.025em;
+        line-height: 1.1;
       }
       button { 
-        padding: 12px 20px;
+        padding: 14px 24px;
         margin: 8px 8px 8px 0;
         cursor: pointer;
         border: none;
         border-radius: 12px;
-        font-size: 14px;
+        font-size: 15px;
         font-weight: 600;
+        letter-spacing: -0.01em;
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         backdrop-filter: blur(8px);
         position: relative;
         overflow: hidden;
+        font-family: inherit;
       }
       button:hover {
         transform: translateY(-1px);
@@ -97,13 +107,17 @@
       }
       h2 {
         color: var(--text);
-        font-weight: 600;
-        margin-bottom: 20px;
-        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 24px;
+        font-size: 1.75rem;
+        letter-spacing: -0.02em;
+        line-height: 1.2;
       }
       small { 
         color: var(--text-light);
         font-weight: 500;
+        font-size: 0.875rem;
+        line-height: 1.5;
       }
 
       .btn-primary { 
@@ -163,16 +177,27 @@
         50% { box-shadow: 0 0 0 8px rgba(29,185,84,0); }
       }
 
-      .track-row { padding: 14px; border-bottom: 1px solid #f0f0f0; display: flex; gap: 14px; align-items: flex-start; transition: background 0.2s; }
+      .track-row { padding: 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; gap: 18px; align-items: flex-start; transition: all 0.2s ease; border-radius: 8px; margin-bottom: 2px; }
       .track-row:last-child { border-bottom: none; }
       .track-row.active-track { 
         background: rgba(29, 185, 84, 0.08);
         border: 1px solid rgba(29, 185, 84, 0.2);
         box-shadow: 0 0 0 1px rgba(29, 185, 84, 0.1);
       }
-      .track-info { flex: 1; min-width: 0; }
-      .track-controls { min-width: 280px; text-align: right; flex-shrink: 0; display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
-      .track-num { color: #999; min-width: 28px; text-align: right; font-size: 14px; padding-top: 2px; }
+      .track-info { flex: 1; min-width: 0; line-height: 1.5; }
+      .track-info > div:first-child {
+        font-size: 1rem;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        margin-bottom: 4px;
+        color: var(--text);
+      }
+      .track-info small {
+        font-size: 0.875rem;
+        line-height: 1.4;
+      }
+      .track-controls { min-width: 280px; text-align: right; flex-shrink: 0; display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+      .track-num { color: var(--text-light); min-width: 32px; text-align: right; font-size: 0.875rem; font-weight: 600; padding-top: 2px; letter-spacing: -0.01em; }
 
       .description-box { margin-top: 10px; padding: 12px; background: #f7f7f7; border-left: 3px solid var(--accent); border-radius: 4px; font-size: 13px; line-height: 1.6; color: #333; }
       .features-toggle { font-size: 12px; color: var(--accent); cursor: pointer; margin-top: 6px; display: inline-block; }
@@ -219,6 +244,49 @@
       .status-analyzing { background: #fff3cd; color: #856404; }
       .status-done { background: #d4edda; color: #155724; }
       .status-error { background: #f8d7da; color: #721c24; }
+      
+      .playlist-info-container {
+        display: flex;
+        gap: 24px;
+        align-items: flex-start;
+      }
+      .playlist-image {
+        width: 120px;
+        height: 120px;
+        border-radius: 16px;
+        object-fit: cover;
+        box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.3);
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(8px);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .playlist-image:hover {
+        transform: scale(1.05) rotate(1deg);
+        box-shadow: 0 12px 35px -5px rgba(0, 0, 0, 0.4);
+      }
+      .playlist-details {
+        flex: 1;
+        min-width: 0;
+      }
+      .playlist-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text);
+        margin-bottom: 8px;
+        letter-spacing: -0.02em;
+        line-height: 1.3;
+      }
+      .playlist-meta {
+        color: var(--text-light);
+        font-size: 1rem;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+      }
+      label {
+        font-weight: 600;
+        font-size: 1rem;
+        letter-spacing: -0.01em;
+      }
     </style>
   </head>
 
@@ -439,7 +507,29 @@
           if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || resp.status);
           const data = await resp.json();
 
-          $("playlistInfo").innerHTML = `<b>${data.playlist.name}</b> · <small>${data.playlist.totalTracks} tracks</small>`;
+          // Check if we have playlist image from the more detailed endpoint
+          let playlistImageUrl = null;
+          try {
+            const detailResp = await fetch(`/api/playlist/${playlistId}`);
+            if (detailResp.ok) {
+              const detailData = await detailResp.json();
+              playlistImageUrl = detailData.image;
+            }
+          } catch (e) { /* ignore */ }
+
+          const imageHTML = playlistImageUrl 
+            ? `<img src="${playlistImageUrl}" alt="Playlist cover" class="playlist-image" />`
+            : '';
+          
+          $("playlistInfo").innerHTML = `
+            <div class="playlist-info-container">
+              ${imageHTML}
+              <div class="playlist-details">
+                <div class="playlist-title">${data.playlist.name}</div>
+                <div class="playlist-meta">${data.playlist.totalTracks} tracks</div>
+              </div>
+            </div>
+          `;
 
           tracksData = data.tracks.map(t => ({
             name: t.name,
