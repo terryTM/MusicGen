@@ -239,7 +239,131 @@ app.post('/api/generate', async (req, res) => {
 });
 
 // --- DiffRhythm (Hugging Face Space) generation endpoint ---
-// POST /api/diffrhythm { prompt: string, lyrics?: string, options?: { duration, steps, cfg_strength, seed, randomize_seed, file_type, odeint_method, preference } }
+// ── GPT-4 negative style prompt (genre contrast for CFG) ────────────
+async function generateNegativeStylePrompt(stylePrompt) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null; // gracefully degrade — Modal will fall back to zeros
+
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature: 0.7,
+        max_tokens: 60,
+        messages: [
+          {
+            role: 'system',
+            content: [
+              'You are a music production expert. Given a music style description,',
+              'output a SHORT (8-15 words) description of the OPPOSITE musical style.',
+              'Focus on contrasting: genre, instrumentation, mood, tempo, and energy.',
+              'This will be used as a negative style prompt for classifier-free guidance,',
+              'so describe real musical characteristics — not negations.',
+              '',
+              'Examples:',
+              'Input: "dark trap, 808 bass, hi-hats, aggressive"',
+              'Output: "bright acoustic folk, gentle fingerpicked guitar, soft and warm"',
+              '',
+              'Input: "dreamy lo-fi hip hop, mellow piano, vinyl crackle"',
+              'Output: "harsh industrial metal, distorted electric guitar, fast and aggressive"',
+              '',
+              'Input: "epic orchestral cinematic, brass, strings, powerful"',
+              'Output: "minimal lo-fi bedroom pop, soft ukulele, quiet and intimate"',
+              '',
+              'Output ONLY the contrasting style description, nothing else.',
+            ].join('\n'),
+          },
+          { role: 'user', content: stylePrompt },
+        ],
+      }),
+    });
+
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const result = (data.choices?.[0]?.message?.content || '').trim();
+    if (result) console.log(`[negative-style] "${stylePrompt.slice(0, 60)}…" → "${result}"`);
+    return result || null;
+  } catch (e) {
+    console.warn('[negative-style] GPT call failed, will use zero vector:', e.message);
+    return null;
+  }
+}
+
+// ── GPT-4 lyric generation ──────────────────────────────────────────
+async function generateLyricsWithGPT(stylePrompt, durationSec = 95) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY not configured — cannot generate lyrics');
+
+  const maxLines = durationSec <= 95 ? 14 : 20;
+  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      temperature: 0.85,
+      max_tokens: 600,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are a professional songwriter. Given a music style description, write original song lyrics.',
+            '',
+            'Rules:',
+            `- Write exactly ${maxLines} lines of lyrics.`,
+            '- One line of lyrics per line — no blank lines between them.',
+            '- Do NOT include timestamps, section headers (Verse, Chorus, Bridge), or any formatting.',
+            '- Lyrics should match the mood, genre, and energy described in the style prompt.',
+            '- Write vivid, poetic, singable English lyrics — avoid generic filler.',
+            '- Include a hook/chorus that repeats once or twice.',
+            '- Output ONLY the raw lyric lines, nothing else — no title, no commentary, no numbering.',
+          ].join('\n'),
+        },
+        {
+          role: 'user',
+          content: `Style: ${stylePrompt}`,
+        },
+      ],
+    }),
+  });
+
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '');
+    throw new Error(`OpenAI lyrics generation failed: ${resp.status} ${txt}`);
+  }
+
+  const data = await resp.json();
+  const raw = (data.choices?.[0]?.message?.content || '').trim();
+  if (!raw) {
+    throw new Error('GPT returned empty lyrics');
+  }
+
+  // Clean: remove any accidental blank lines or section headers
+  const plainLyrics = raw
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l && !/^\[.*\]$/.test(l) && !/^(verse|chorus|bridge|hook|outro|intro|pre-chorus)\s*\d*\s*:?\s*$/i.test(l))
+    .join('\n');
+
+  if (!plainLyrics) {
+    throw new Error('GPT returned no usable lyric lines');
+  }
+
+  // Convert plain lyrics into properly timestamped LRC using the existing helper
+  const lrc = generateLrcFromText(plainLyrics, durationSec, maxLines);
+  console.log('[lyrics-gen] Plain lyrics:\n' + plainLyrics);
+  console.log('[lyrics-gen] LRC:\n' + lrc);
+  return { lrc, plainLyrics };
+}
+
+// POST /api/diffrhythm { prompt: string, lyrics?: string, options?: { duration, steps, cfg_strength, seed, randomize_seed, file_type, odeint_method, preference, withLyrics } }
 function formatLrcTimestamp(totalSeconds) {
   const mm = Math.floor(totalSeconds / 60);
   const ss = Math.floor(totalSeconds % 60);
@@ -355,6 +479,13 @@ async function saveBase64ToGenerated(b64, ext = 'mp3') {
 
 async function callDiffRhythm(prompt, lrc, options = {}) {
   if (DIFFRHYTHM_MODAL_URL) {
+    console.log('[callDiffRhythm] Sending to Modal:', {
+      text_prompt: prompt?.slice(0, 80) + '…',
+      lyrics_length: lrc?.length,
+      lyrics_preview: lrc?.slice(0, 120),
+      vocal_flag: !!options.vocal_flag,
+      negative_text_prompt: options.negative_text_prompt || null,
+    });
     const resp = await fetch(DIFFRHYTHM_MODAL_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -362,6 +493,8 @@ async function callDiffRhythm(prompt, lrc, options = {}) {
         text_prompt: prompt,
         lyrics: lrc,
         options,
+        vocal_flag: !!options.vocal_flag,
+        negative_text_prompt: options.negative_text_prompt || null,
       }),
     });
     if (!resp.ok) {
@@ -390,7 +523,7 @@ async function callDiffRhythm(prompt, lrc, options = {}) {
         'text',
         Number.isFinite(options.seed) ? Number(options.seed) : 0,
         options.randomize_seed !== false,
-        Number(options.steps || 32),
+        Number(options.steps || 50),
         Number(options.cfg_strength || 4.0),
         options.file_type || 'mp3',
         options.odeint_method || 'euler',
@@ -434,7 +567,7 @@ app.post('/api/diffrhythm', async (req, res) => {
 
     const opts = options && typeof options === 'object' ? options : {};
     const duration = Number(opts.duration || 95);
-    const steps = Number(opts.steps || 32);
+    const steps = Number(opts.steps || 50);
     const cfgStrength = Number(opts.cfg_strength || 4.0);
     const seed = Number.isFinite(opts.seed) ? Number(opts.seed) : 0;
     const randomizeSeed = opts.randomize_seed !== false;
@@ -442,9 +575,28 @@ app.post('/api/diffrhythm', async (req, res) => {
     const odeintMethod = opts.odeint_method || 'euler';
     const preference = opts.preference || 'speed first';
 
-    const lrc = lyrics && typeof lyrics === 'string' && lyrics.trim()
-      ? lyrics.trim()
-      : generateLrcFromText(prompt, duration, opts.lrc_max_lines || 24);
+    const withLyrics = !!opts.withLyrics;
+
+    let lrc;
+    let plainLyrics = null;
+    let negativeStylePrompt = null;
+    if (lyrics && typeof lyrics === 'string' && lyrics.trim()) {
+      lrc = lyrics.trim();
+      // Still generate a negative prompt for genre steering
+      negativeStylePrompt = await generateNegativeStylePrompt(prompt);
+    } else if (withLyrics) {
+      console.log('[diffrhythm] Generating lyrics + negative style prompt via GPT…');
+      // Run both GPT calls in parallel for speed
+      const [generated, negPrompt] = await Promise.all([
+        generateLyricsWithGPT(prompt, duration),
+        generateNegativeStylePrompt(prompt),
+      ]);
+      lrc = generated.lrc;
+      plainLyrics = generated.plainLyrics;
+      negativeStylePrompt = negPrompt;
+    } else {
+      lrc = '[00:00.00] Instrumental';
+    }
 
     const result = await callDiffRhythm(prompt, lrc, {
       duration,
@@ -456,8 +608,11 @@ app.post('/api/diffrhythm', async (req, res) => {
       odeint_method: odeintMethod,
       preference,
       lrc_max_lines: opts.lrc_max_lines || 24,
+      vocal_flag: withLyrics,
+      negative_text_prompt: negativeStylePrompt,
     });
 
+    result.lyrics_used = plainLyrics || lrc;
     return res.json(result);
   } catch (e) {
     console.error('DiffRhythm error:', e);
@@ -540,15 +695,15 @@ app.post('/api/playlist/:id/generate-song', async (req, res) => {
       return res.status(502).json({ error: 'No playlist summary returned from analysis backend', tracks: merged, playlist: { name: yt.name, totalTracks: yt.totalTracks } });
     }
 
-    // Call DiffRhythm using the summary as prompt
+    // Call DiffRhythm using the summary as style prompt (not lyrics)
     const { options } = req.body || {};
     const duration = Number(options?.duration || 95);
-    const lrc = generateLrcFromText(playlistSummary, duration, options?.lrc_max_lines || 24);
+    const lrc = '[00:00.00] Instrumental';
     let drResult;
     try {
       drResult = await callDiffRhythm(playlistSummary, lrc, {
         duration,
-        steps: Number(options?.steps || 32),
+        steps: Number(options?.steps || 50),
         cfg_strength: Number(options?.cfg_strength || 4.0),
         seed: Number.isFinite(options?.seed) ? Number(options.seed) : 0,
         randomize_seed: options?.randomize_seed !== false,

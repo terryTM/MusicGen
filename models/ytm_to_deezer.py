@@ -290,13 +290,39 @@ def _get_tagger():
     return _panns_tagger, _panns_labels
 
 
+# Per-category thresholds — vocals are under-represented in 30-second
+# preview clips (intros, instrumental breaks), so we use a much lower
+# threshold there to avoid falsely labelling everything "instrumental".
+_CATEGORY_THRESHOLDS: Dict[str, float] = {
+    "genre": 0.03,
+    "instrument": 0.03,
+    "vocal": 0.01,          # very low — we'd rather over-report than miss
+}
+
+# Genres that almost always contain vocals.  Used by describe_track()
+# to avoid the misleading "Likely instrumental" label.
+_VOCAL_GENRES = {
+    "Pop music", "Hip hop music", "Rock music", "Heavy metal",
+    "Punk rock", "Rock and roll", "Rhythm and blues", "Soul music",
+    "Reggae", "Country", "Folk music", "Blues", "Vocal music",
+}
+
+
 def extract_tags(
     audio_path: str,
     top_n: int = 5,
-    threshold: float = 0.03,
-) -> Dict[str, List[Dict[str, Any]]]:
+    vocal_window_sec: float = 10.0,
+    vocal_hop_sec: float = 5.0,
+) -> Dict[str, Any]:
     """
     Auto-tag an audio file using PANNs (Pretrained Audio Neural Networks).
+
+    Genre and instrument tags are extracted from the **full clip** (best
+    with more context).  Vocal tags use a **sliding-window scan** — the
+    clip is split into overlapping windows and the *best* vocal
+    probabilities across all windows are kept.  This avoids the common
+    problem of missing vocals that only appear later in the 30-second
+    Deezer preview (e.g. after an intro or instrumental break).
 
     Parameters
     ----------
@@ -304,34 +330,72 @@ def extract_tags(
         Path to an audio file (MP3, WAV, etc.).
     top_n : int
         Max tags to return per category.
-    threshold : float
-        Minimum probability to include a tag.
+    vocal_window_sec : float
+        Window length in seconds for the vocal scan (default 10 s).
+    vocal_hop_sec : float
+        Hop between consecutive vocal windows (default 5 s → 50 % overlap).
 
     Returns
     -------
     dict with keys "genre", "instrument", "vocal", each mapping to a list
     of {"label": str, "prob": float} sorted by descending probability.
+    Also includes "_vocal_prob_max" (float) — the highest raw vocal
+    probability across all windows.
     """
     tagger, labels = _get_tagger()
 
-    # PANNs expects (batch, samples) float32 at 32 kHz
-    y, _sr = librosa.load(audio_path, sr=32000, mono=True)
+    SR_PANNS = 32_000  # PANNs expects 32 kHz
+    y, _ = librosa.load(audio_path, sr=SR_PANNS, mono=True)
+
+    # ── Full-clip inference for genre & instrument ──────────────
     waveform = y[np.newaxis, :]  # (1, samples)
-
     with torch.no_grad():
-        clipwise_output, _embedding = tagger.inference(waveform)
+        clipwise_output, _ = tagger.inference(waveform)
+    full_probs = clipwise_output[0]  # (527,)
 
-    probs = clipwise_output[0]  # shape (527,)
+    # ── Windowed vocal scan ─────────────────────────────────────
+    win_samples = int(vocal_window_sec * SR_PANNS)
+    hop_samples = int(vocal_hop_sec * SR_PANNS)
 
-    result: Dict[str, List[Dict[str, Any]]] = {}
+    # Build windows; fall back to full clip if it's shorter than one window
+    starts = list(range(0, max(1, len(y) - win_samples + 1), hop_samples))
+    if not starts:
+        starts = [0]
+
+    vocal_indices = MUSIC_LABELS["vocal"]
+    # Track the best probability seen per vocal label across all windows
+    best_vocal: Dict[int, float] = {idx: 0.0 for idx in vocal_indices}
+
+    for s in starts:
+        chunk = y[s : s + win_samples]
+        if len(chunk) < SR_PANNS:  # skip tiny tail (<1 s)
+            continue
+        wav = chunk[np.newaxis, :]
+        with torch.no_grad():
+            co, _ = tagger.inference(wav)
+        p = co[0]
+        for idx in vocal_indices:
+            best_vocal[idx] = max(best_vocal[idx], float(p[idx]))
+
+    # ── Assemble results ────────────────────────────────────────
+    result: Dict[str, Any] = {}
     for category, indices in MUSIC_LABELS.items():
+        thresh = _CATEGORY_THRESHOLDS.get(category, 0.03)
         cat_tags = []
         for idx in indices:
-            p = float(probs[idx])
-            if p >= threshold:
+            if category == "vocal":
+                p = best_vocal.get(idx, 0.0)   # use windowed max
+            else:
+                p = float(full_probs[idx])      # use full-clip
+            if p >= thresh:
                 cat_tags.append({"label": labels[idx], "prob": round(p, 4)})
         cat_tags.sort(key=lambda x: x["prob"], reverse=True)
         result[category] = cat_tags[:top_n]
+
+    # Expose peak vocal prob for downstream reasoning
+    result["_vocal_prob_max"] = round(
+        max(best_vocal.values()) if best_vocal else 0.0, 4
+    )
 
     return result
 
@@ -572,13 +636,13 @@ def describe_track(
     tags: Optional[Dict[str, List[Dict[str, Any]]]] = None,
 ) -> str:
     """
-    Produce a detailed natural-language description of a track.
+    Produce a maximally detailed natural-language description of a track.
 
     The output is intended to be consumed by another LLM that will
-    refine it into a text-conditioned music-generation prompt.
-    Covers: identity, duration, tempo, key/mode, dynamics, spectral
-    character, texture, rhythmic feel, energy arc, genre, instruments,
-    and vocal style.
+    refine it into a text-conditioned music-generation prompt.  Every
+    available numeric feature is included inline so the downstream model
+    has full context.  No attempt is made to be concise or polished —
+    information density is the goal.
     """
     sections: list[str] = []
 
@@ -586,11 +650,15 @@ def describe_track(
     header = f'"{name}" by {artist}'
     if duration_ms:
         m, s = divmod(int(round(duration_ms / 1000)), 60)
-        header += f" ({m}:{s:02d})"
+        header += f" (full track duration {m}:{s:02d})"
     sections.append(header + ".")
 
     if not audio_feats and not tags:
-        sections.append("No audio preview was available; only metadata is known.")
+        sections.append(
+            "No audio preview was available for analysis; only the track "
+            "title and artist name are known.  The downstream prompt should "
+            "rely on general knowledge of this artist's style."
+        )
         return " ".join(sections)
 
     # ── Tempo & rhythm ──────────────────────────────────────────
@@ -599,100 +667,219 @@ def describe_track(
         if bpm > 0:
             reg = audio_feats.get("beat_regularity", 0)
             reg_desc = (
-                "very steady, metronomic beat" if reg > 0.92
-                else "fairly regular beat" if reg > 0.75
-                else "somewhat loose or swung rhythm" if reg > 0.5
-                else "free-tempo or rubato feel"
+                "very steady/metronomic" if reg > 0.92
+                else "fairly regular" if reg > 0.75
+                else "somewhat loose or swung" if reg > 0.5
+                else "free-tempo/rubato"
             )
             sections.append(
-                f"Tempo is {_tempo_descriptor(bpm)} at ~{int(round(bpm))} BPM with a {reg_desc}."
+                f"TEMPO & RHYTHM: {_tempo_descriptor(bpm)} at {bpm:.1f} BPM. "
+                f"Beat regularity={reg:.3f} ({reg_desc}). "
             )
 
         onset_m = audio_feats.get("onset_strength_mean", 0)
         onset_s = audio_feats.get("onset_strength_std", 0)
-        if onset_m > 2.0:
-            sections.append("Highly percussive with frequent transients.")
-        elif onset_m > 1.0:
-            sections.append("Moderately percussive with clear rhythmic attacks.")
-        elif onset_m > 0.3:
-            sections.append("Gentle rhythmic presence.")
-        else:
-            sections.append("Minimal percussive elements; sustained or ambient texture.")
+        percussiveness = (
+            "highly percussive, dense transients"
+            if onset_m > 2.0
+            else "moderately percussive with clear rhythmic attacks"
+            if onset_m > 1.0
+            else "gentle rhythmic presence, few sharp attacks"
+            if onset_m > 0.3
+            else "minimal percussive energy; sustained/ambient texture"
+        )
+        sections.append(
+            f"Onset strength mean={onset_m:.3f}, std={onset_s:.3f} "
+            f"({percussiveness})."
+        )
 
     # ── Key & tonality ──────────────────────────────────────────
     if audio_feats and audio_feats.get("estimated_key"):
         key = audio_feats["estimated_key"]
         mode = audio_feats.get("mode", "unknown")
         conf = audio_feats.get("mode_confidence", 0)
-        conf_word = "strongly" if conf > 0.85 else "likely" if conf > 0.65 else "possibly"
-        sections.append(f"Key: {conf_word} {key} {mode}.")
+        chroma = audio_feats.get("chroma_mean", [])
+        chroma_str = ""
+        if chroma and len(chroma) == 12:
+            # Show top-3 pitch classes by energy for harmonic colour
+            pairs = sorted(
+                zip(_PITCH_CLASSES, chroma), key=lambda x: x[1], reverse=True
+            )
+            top3 = ", ".join(f"{n}={v:.3f}" for n, v in pairs[:3])
+            chroma_str = f" Strongest pitch classes: {top3}."
+        sections.append(
+            f"KEY & TONALITY: Estimated {key} {mode} "
+            f"(Krumhansl correlation={conf:.3f}).{chroma_str}"
+        )
 
     # ── Dynamics ────────────────────────────────────────────────
     if audio_feats and audio_feats.get("rms_mean") is not None:
+        rms_m = audio_feats["rms_mean"]
+        rms_s = audio_feats.get("rms_std", 0)
+        rms_x = audio_feats.get("rms_max", 0)
+        dr = audio_feats.get("dynamic_range_db", 0)
+        loudness = (
+            "very loud/compressed" if rms_m > 0.12
+            else "loud and punchy" if rms_m > 0.08
+            else "moderate loudness" if rms_m > 0.04
+            else "soft and gentle" if rms_m > 0.015
+            else "very quiet/delicate"
+        )
+        dyn_range = (
+            "wide dynamic range with large crescendos/decrescendos"
+            if dr > 30
+            else "moderate dynamic variation"
+            if dr > 15
+            else "narrow/compressed dynamic range"
+        )
         sections.append(
-            "Dynamics: "
-            + _dynamics_descriptor(
-                audio_feats["rms_mean"],
-                audio_feats.get("dynamic_range_db", 0),
-            )
-            + "."
+            f"DYNAMICS: RMS mean={rms_m:.4f}, std={rms_s:.4f}, "
+            f"max={rms_x:.4f} ({loudness}). "
+            f"Dynamic range={dr:.1f} dB ({dyn_range})."
         )
 
     # ── Energy arc ──────────────────────────────────────────────
     if audio_feats and audio_feats.get("energy_profile_quarters"):
+        q = audio_feats["energy_profile_quarters"]
+        q_str = ", ".join(f"Q{i+1}={v:.4f}" for i, v in enumerate(q))
         sections.append(
-            "Energy arc: " + _energy_arc(audio_feats["energy_profile_quarters"]) + "."
+            f"ENERGY ARC (RMS by quarter of clip): [{q_str}] — "
+            f"{_energy_arc(q)}."
         )
 
     # ── Spectral character ──────────────────────────────────────
     if audio_feats and audio_feats.get("spectral_centroid_mean") is not None:
-        sections.append(
-            "Spectral character: "
-            + _spectral_descriptor(
-                audio_feats["spectral_centroid_mean"],
-                audio_feats.get("spectral_bandwidth_mean", 1500),
-                audio_feats.get("spectral_rolloff_mean", 3000),
-                audio_feats.get("spectral_flatness_mean", 0.01),
-            )
-            + "."
+        c_m = audio_feats["spectral_centroid_mean"]
+        c_s = audio_feats.get("spectral_centroid_std", 0)
+        bw = audio_feats.get("spectral_bandwidth_mean", 0)
+        ro = audio_feats.get("spectral_rolloff_mean", 0)
+        fl = audio_feats.get("spectral_flatness_mean", 0)
+        contrast = audio_feats.get("spectral_contrast_mean", [])
+
+        brightness = (
+            "very bright/airy" if c_m > 4000
+            else "bright" if c_m > 3000
+            else "balanced mid-range" if c_m > 2000
+            else "warm/dark" if c_m > 1200
+            else "very dark/bass-heavy"
+        )
+        width = (
+            "spectrally wide/rich" if bw > 2500
+            else "spectrally narrow/focused" if bw < 1200
+            else "moderate spectral width"
+        )
+        noisiness = (
+            "noisy/textured" if fl > 0.1
+            else "slightly noisy" if fl > 0.02
+            else "clean and tonal" if fl < 0.005
+            else "fairly clean"
         )
 
-    # ── Harmonic vs percussive ──────────────────────────────────
-    if audio_feats and audio_feats.get("harmonic_ratio") is not None:
-        hr = audio_feats["harmonic_ratio"]
-        if hr > 0.85:
-            sections.append("Predominantly harmonic/melodic content with little percussive energy.")
-        elif hr > 0.6:
-            sections.append("Good balance of melodic and percussive elements.")
-        else:
-            sections.append("Percussion-dominated mix with strong transient energy.")
+        spec_desc = (
+            f"SPECTRAL CHARACTER: Centroid mean={c_m:.0f} Hz (std={c_s:.0f} Hz) "
+            f"— {brightness}. Bandwidth={bw:.0f} Hz ({width}). "
+            f"Rolloff(85%)={ro:.0f} Hz. Flatness={fl:.6f} ({noisiness})."
+        )
+        if contrast and len(contrast) == 7:
+            bands = ["sub-bass", "bass", "low-mid", "mid", "upper-mid", "presence", "brilliance"]
+            c_str = ", ".join(f"{bands[i]}={v:.1f}" for i, v in enumerate(contrast))
+            spec_desc += f" Spectral contrast by band: [{c_str}]."
+        sections.append(spec_desc)
 
-    # ── Zero-crossing (noisiness) ───────────────────────────────
-    if audio_feats and audio_feats.get("zero_crossing_rate_mean") is not None:
-        zcr = audio_feats["zero_crossing_rate_mean"]
-        if zcr > 0.15:
-            sections.append("High zero-crossing rate suggests noisy, distorted, or breathy textures.")
-        elif zcr < 0.03:
-            sections.append("Very low zero-crossing rate indicates smooth, sustained tones.")
+    # ── Timbre (MFCCs) ──────────────────────────────────────────
+    if audio_feats and audio_feats.get("mfcc_mean"):
+        mm = audio_feats["mfcc_mean"]
+        ms = audio_feats.get("mfcc_std", [])
+        # MFCC 0 ≈ overall energy; 1-4 encode broad timbral shape
+        sections.append(
+            f"TIMBRE (MFCCs 0-12 mean): [{', '.join(f'{v:.1f}' for v in mm)}]. "
+            f"MFCC std: [{', '.join(f'{v:.1f}' for v in ms)}]. "
+            f"MFCC-0 (energy)={mm[0]:.1f}; MFCC-1 (spectral slope)={mm[1]:.1f}; "
+            f"MFCC-2 (spectral curvature)={mm[2]:.1f}."
+        )
 
-    # ── Tags: genre ─────────────────────────────────────────────
+    # ── Texture: harmonic ratio & ZCR ───────────────────────────
+    if audio_feats:
+        hr = audio_feats.get("harmonic_ratio")
+        zcr = audio_feats.get("zero_crossing_rate_mean")
+        parts = []
+        if hr is not None:
+            hp_desc = (
+                "predominantly harmonic/melodic" if hr > 0.85
+                else "balanced harmonic and percussive" if hr > 0.6
+                else "percussion-dominated"
+            )
+            parts.append(
+                f"Harmonic-to-total energy ratio={hr:.3f} ({hp_desc})"
+            )
+        if zcr is not None:
+            zcr_desc = (
+                "noisy/distorted/breathy"
+                if zcr > 0.15
+                else "moderate texture"
+                if zcr > 0.05
+                else "smooth/sustained tones"
+            )
+            parts.append(f"Zero-crossing rate={zcr:.5f} ({zcr_desc})")
+        if parts:
+            sections.append("TEXTURE: " + ". ".join(parts) + ".")
+
+    # ── Tags: genre, instrument, vocal ──────────────────────────
     if tags:
         genres = tags.get("genre", [])
         if genres:
-            names = [f'{t["label"]} ({t["prob"]:.0%})' for t in genres[:5]]
-            sections.append("Detected genres: " + ", ".join(names) + ".")
+            names = [f'{t["label"]}={t["prob"]:.1%}' for t in genres[:5]]
+            sections.append("DETECTED GENRES (PANNs AudioSet, confidence): " + ", ".join(names) + ".")
 
         instruments = tags.get("instrument", [])
         if instruments:
-            names = [f'{t["label"]} ({t["prob"]:.0%})' for t in instruments[:5]]
-            sections.append("Detected instruments: " + ", ".join(names) + ".")
+            names = [f'{t["label"]}={t["prob"]:.1%}' for t in instruments[:5]]
+            sections.append("DETECTED INSTRUMENTS: " + ", ".join(names) + ".")
+        else:
+            sections.append(
+                "INSTRUMENTS: No specific instruments detected above threshold "
+                "(may be heavily mixed or synthetic/electronic)."
+            )
 
         vocals = tags.get("vocal", [])
+        vocal_max = tags.get("_vocal_prob_max", 0.0)
+
+        # Check if detected genres imply vocals are present
+        genre_names = {g["label"] for g in genres}
+        genre_implies_vocals = bool(genre_names & _VOCAL_GENRES)
+
         if vocals:
-            names = [f'{t["label"]} ({t["prob"]:.0%})' for t in vocals[:3]]
-            sections.append("Vocal character: " + ", ".join(names) + ".")
+            names = [f'{t["label"]}={t["prob"]:.1%}' for t in vocals[:3]]
+            sections.append(
+                f"VOCALS: Detected — " + ", ".join(names)
+                + f". Peak vocal probability across windows={vocal_max:.3f}."
+            )
+        elif genre_implies_vocals:
+            sections.append(
+                f"VOCALS: Not strongly detected in the 30-second preview "
+                f"(peak vocal prob={vocal_max:.3f}), but detected genres "
+                f"({', '.join(genre_names & _VOCAL_GENRES)}) strongly imply "
+                f"vocals are present in the full track.  Assume vocals present."
+            )
+        elif vocal_max > 0.005:
+            sections.append(
+                f"VOCALS: Faint vocal signal (peak={vocal_max:.3f}); "
+                f"may contain vocals in the full track but the 30-second "
+                f"preview is ambiguous."
+            )
         else:
-            sections.append("Likely instrumental (no strong vocal signal detected).")
+            sections.append(
+                f"VOCALS: Likely instrumental — no vocal signal detected "
+                f"(peak vocal prob={vocal_max:.3f})."
+            )
+
+    # ── Caveat about preview limitations ────────────────────────
+    sections.append(
+        "NOTE: All features are extracted from a 30-second Deezer preview "
+        "clip, not the full track.  The preview may not be representative "
+        "of the entire song (e.g. intros, outros, key changes, tempo "
+        "shifts in the full track are not captured)."
+    )
 
     return " ".join(sections)
 

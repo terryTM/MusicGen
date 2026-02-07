@@ -245,9 +245,34 @@
       </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/audiomotion-analyzer@4/dist/audiomotion-analyzer.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/audiomotion-analyzer@4"></script>
+    <script>
+      // Fallback CDN if jsdelivr fails
+      if (typeof AudioMotionAnalyzer === 'undefined') {
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/audiomotion-analyzer@4';
+        script.onerror = function() {
+          document.getElementById('status').innerHTML = '<span style="color: #ff6b6b;">⚠️ Audio visualizer library failed to load from CDN. Please check your internet connection.</span>';
+        };
+        document.head.appendChild(script);
+      }
+    </script>
     <script>
       window.addEventListener('load', function() {
+      
+      // Check if library loaded
+      if (typeof AudioMotionAnalyzer === 'undefined') {
+        console.error('AudioMotionAnalyzer library failed to load');
+        document.getElementById('status').innerHTML = '<span style="color: #ff6b6b;">⚠️ Failed to load audio visualizer library. Trying alternative source...</span>';
+        
+        // Give it a few more seconds for fallback to load
+        setTimeout(function() {
+          if (typeof AudioMotionAnalyzer === 'undefined') {
+            document.getElementById('status').innerHTML = '<span style="color: #ff6b6b;">❌ Could not load visualizer. Please refresh the page.</span>';
+          }
+        }, 3000);
+        return;
+      }
 
       const audio = document.getElementById('audio');
       const status = document.getElementById('status');

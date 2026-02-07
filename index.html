@@ -611,7 +611,7 @@
         50% { box-shadow: 0 0 0 8px rgba(29,185,84,0); }
       }
 
-      .track-row { padding: 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; gap: 18px; align-items: flex-start; transition: all 0.2s ease; border-radius: 8px; margin-bottom: 2px; }
+      .track-row { padding: 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; gap: 18px; align-items: flex-start; transition: all 0.2s ease; border-radius: 8px; margin-bottom: 2px; flex-wrap: wrap; }
       .track-row:last-child { border-bottom: none; }
       .track-row.active-track { 
         background: rgba(29, 185, 84, 0.08);
@@ -639,7 +639,7 @@
         color: rgba(255, 255, 255, 0.4);
         flex-shrink: 0;
       }
-      .track-info { flex: 1; min-width: 0; line-height: 1.5; }
+      .track-info { flex: 1 1 300px; min-width: 0; line-height: 1.5; }
       .track-info > div:first-child {
         font-size: 1rem;
         font-weight: 600;
@@ -651,13 +651,14 @@
         font-size: 0.875rem;
         line-height: 1.4;
       }
-      .track-controls { min-width: 280px; text-align: right; flex-shrink: 0; display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+      .track-controls { min-width: auto; text-align: right; flex-shrink: 0; display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
       .track-num { color: var(--text-light); min-width: 32px; text-align: right; font-size: 0.875rem; font-weight: 600; padding-top: 2px; letter-spacing: -0.01em; }
 
-      .description-box { margin-top: 10px; padding: 12px; background: #f7f7f7; border-left: 3px solid var(--accent); border-radius: 4px; font-size: 13px; line-height: 1.6; color: #333; }
-      .features-toggle { font-size: 12px; color: var(--accent); cursor: pointer; margin-top: 6px; display: inline-block; }
+      .track-analysis { flex-basis: 100%; min-width: 0; margin-top: 4px; }
+      .description-box { margin-top: 10px; padding: 14px 16px; background: rgba(255, 255, 255, 0.06); border-left: 3px solid var(--accent); border-radius: 8px; font-size: 13px; line-height: 1.7; color: var(--text); word-wrap: break-word; overflow-wrap: break-word; }
+      .features-toggle { font-size: 12px; color: var(--accent); cursor: pointer; margin-top: 8px; display: inline-block; }
       .features-toggle:hover { text-decoration: underline; }
-      .features-detail { display: none; margin-top: 8px; padding: 10px; background: #0b1020; color: #e6e6e6; border-radius: 8px; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; font-family: 'Fira Code', 'Consolas', monospace; }
+      .features-detail { display: none; margin-top: 8px; padding: 12px; background: rgba(0, 0, 0, 0.3); color: #e6e6e6; border-radius: 8px; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; font-family: 'Fira Code', 'Consolas', monospace; max-height: 400px; overflow-y: auto; }
       .features-detail.open { display: block; }
 
       .tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
@@ -692,6 +693,23 @@
       }
       .trippify-btn:hover { background: #0052cc; }
 
+      .btn-generate {
+        padding: 10px 24px;
+        border-radius: 500px;
+        background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+        color: white;
+        font-weight: 600;
+        font-size: 1rem;
+        border: none;
+        cursor: pointer;
+        transition: all 0.25s;
+        letter-spacing: -0.01em;
+      }
+      .btn-generate:hover { background: linear-gradient(135deg, #7c3aed, #5b21b6); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(109, 40, 217, 0.3); }
+      .btn-generate:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+      .generated-song-card { margin-top: 20px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 16px; padding: 24px; }
+      .generated-song-card h3 { color: #a78bfa; margin: 0 0 12px 0; }
+      .generated-song-card audio { width: 100%; margin-top: 12px; border-radius: 8px; }
       .progress-bar { height: 4px; background: #e0e0e0; border-radius: 2px; margin-top: 10px; overflow: hidden; }
       .progress-fill { height: 100%; background: var(--accent); transition: width 0.3s; }
 
@@ -769,6 +787,10 @@
       <div style="margin-top:16px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;align-items:center;">
         <button id="fetchBtn" class="btn-primary">🔍 Load Playlist</button>
         <button id="analyzeBtn" class="btn-analyze" disabled>🧠 Analyze All Tracks</button>
+        <button id="generateBtn" class="btn-generate" disabled>🎶 Generate Song</button>
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text-light);cursor:pointer;user-select:none;">
+          <input type="checkbox" id="vocalsCheckbox" style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer;"> Include vocals
+        </label>
       </div>
       <div style="margin-top:12px;text-align:center;">
         <small id="status">Ready to load a playlist</small>
@@ -844,17 +866,26 @@
         if (!url) return;
         if (currentAudio) { currentAudio.pause(); clearActiveTrack(); }
 
-        // Initialize audio context
+        // Initialize audio context once
         if (!audioContext) {
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          analyser = audioContext.createAnalyser();
-          analyser.fftSize = 64;
         }
 
         currentAudio = new Audio(url);
-        const source = audioContext.createMediaElementSource(currentAudio);
-        source.connect(analyser);
-        analyser.connect(audioContext.destination);
+        currentAudio.crossOrigin = "anonymous";
+        
+        // Create new analyser for each track to avoid reuse issues
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 64;
+        
+        try {
+          const source = audioContext.createMediaElementSource(currentAudio);
+          source.connect(analyser);
+          analyser.connect(audioContext.destination);
+        } catch (e) {
+          console.warn('AudioContext issue:', e);
+          // Fallback: play without visualization
+        }
 
         currentAudio.play().catch(() => {});
         btn.classList.add('playing');
@@ -864,7 +895,7 @@
 
         // Show and animate visualizer
         const canvas = document.querySelector(`.audio-visualizer[data-idx="${idx}"]`);
-        if (canvas) {
+        if (canvas && analyser) {
           canvas.classList.add('active');
           const bufferLength = analyser.frequencyBinCount;
           const dataArray = new Uint8Array(bufferLength);
@@ -884,6 +915,7 @@
       // ── Track data store ────────────────────
       let playlistId = null;
       let tracksData = [];  // enriched after analysis
+      let cachedPlaylistSummary = null;  // cached after analysis for generation
 
       // ── Render helpers ──────────────────────
       function renderTag(label, prob, cat) {
@@ -936,7 +968,6 @@
               <div><b>${t.name}</b></div>
               <div><small>${t.artist || t.artists || ''} · ${t.duration || ''}</small></div>
               ${matchInfo ? `<div><small style="color:var(--accent)">${matchInfo}</small></div>` : ''}
-              ${analysisHTML}
             </div>
             <div class="track-controls">
               <canvas class="audio-visualizer" data-idx="${i}" width="80" height="30"></canvas>
@@ -944,6 +975,7 @@
               ${visualizeBtn}
               ${trippifyBtn}
             </div>
+            ${analysisHTML ? `<div class="track-analysis">${analysisHTML}</div>` : ''}
           </div>`;
       }
 
@@ -1057,13 +1089,110 @@
           setProgress(100);
 
           const analyzed = tracksData.filter(t => t.audio_features).length;
-          setStatus(`✅ ${analyzed}/${tracksData.length} tracks analyzed with audio features + descriptions.`, 'status-done');
+          let statusMsg = `✅ ${analyzed}/${tracksData.length} tracks analyzed with audio features + descriptions.`;
+          
+          // Cache and display GPT-4 playlist summary
+          cachedPlaylistSummary = data.playlist_summary || null;
+          if (data.playlist_summary) {
+            const summaryDiv = document.createElement('div');
+            summaryDiv.className = 'card';
+            summaryDiv.style.marginTop = '20px';
+            summaryDiv.style.background = 'rgba(29, 185, 84, 0.1)';
+            summaryDiv.style.border = '1px solid rgba(29, 185, 84, 0.3)';
+            summaryDiv.innerHTML = `
+              <h3 style="margin-bottom: 12px; color: var(--accent);">🎵 AI Music Generation Prompt</h3>
+              <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px; font-size: 14px; line-height: 1.6;">
+                ${data.playlist_summary}
+              </div>
+              <small style="display: block; margin-top: 10px; opacity: 0.7;">Generated by GPT-4 based on audio analysis</small>
+            `;
+            
+            // Insert after playlistInfo
+            const playlistInfo = $('playlistInfo');
+            if (playlistInfo.nextSibling) {
+              playlistInfo.parentNode.insertBefore(summaryDiv, playlistInfo.nextSibling);
+            } else {
+              playlistInfo.parentNode.appendChild(summaryDiv);
+            }
+          }
+          
+          setStatus(statusMsg, 'status-done');
+          $("generateBtn").disabled = false;
           setTimeout(() => setProgress(null), 2000);
         } catch (e) {
           setStatus(`❌ Analysis failed: ${e.message}`, 'status-error');
           setProgress(null);
         } finally {
           $("analyzeBtn").disabled = false;
+        }
+      };
+
+      // ── Generate song via DiffRhythm (uses cached summary) ──
+      $("generateBtn").onclick = async () => {
+        if (!cachedPlaylistSummary) {
+          setStatus('❌ Run Analyze first to generate a playlist summary.', 'status-error');
+          return;
+        }
+        const withLyrics = $("vocalsCheckbox").checked;
+        $("generateBtn").disabled = true;
+        $("generateBtn").textContent = withLyrics ? '🎤 Generating with vocals…' : '🎶 Generating…';
+        setStatus(withLyrics
+          ? '🎤 Writing lyrics & generating song… This may take 2-4 minutes.'
+          : '🎵 Generating instrumental with DiffRhythm… This may take 1-3 minutes.', 'status-analyzing');
+        setProgress(10);
+
+        // Remove any previous generated song card
+        const prev = document.querySelector('.generated-song-card');
+        if (prev) prev.remove();
+
+        try {
+          const resp = await fetch('/api/diffrhythm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: cachedPlaylistSummary,
+              options: { duration: 95, steps: 50, file_type: 'mp3', withLyrics }
+            })
+          });
+          setProgress(80);
+          if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || resp.status);
+          const result = await resp.json();
+          setProgress(100);
+
+          if (result.url) {
+            const lyricsBlock = result.lyrics_used && result.lyrics_used !== '[00:00.00] Instrumental'
+              ? `<details style="margin-bottom:12px;"><summary style="cursor:pointer;color:var(--accent);font-size:13px;">🎤 Generated Lyrics</summary><pre style="background:rgba(0,0,0,0.3);padding:12px;border-radius:8px;font-size:12px;line-height:1.6;margin-top:8px;white-space:pre-wrap;color:var(--text);">${result.lyrics_used}</pre></details>`
+              : '';
+            const card = document.createElement('div');
+            card.className = 'generated-song-card card';
+            card.innerHTML = `
+              <h3>🎶 Generated Song ${withLyrics ? '(with vocals)' : '(instrumental)'}</h3>
+              <p style="font-size: 14px; opacity: 0.8; margin: 0 0 8px 0;">Based on the audio analysis of your playlist</p>
+              <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; font-size: 13px; line-height: 1.6; margin-bottom: 12px;"><strong>Style prompt:</strong> ${cachedPlaylistSummary}</div>
+              ${lyricsBlock}
+              <audio controls src="${result.url}"></audio>
+              <a href="${result.url}" download style="display:inline-block;margin-top:10px;color:#a78bfa;font-size:13px;">⬇ Download</a>
+            `;
+            const playlistInfo = $('playlistInfo');
+            const existingSummary = playlistInfo.nextElementSibling;
+            if (existingSummary && existingSummary.innerHTML.includes('Music Generation Prompt')) {
+              existingSummary.parentNode.insertBefore(card, existingSummary.nextSibling);
+            } else if (playlistInfo.nextSibling) {
+              playlistInfo.parentNode.insertBefore(card, playlistInfo.nextSibling);
+            } else {
+              playlistInfo.parentNode.appendChild(card);
+            }
+            setStatus('✅ Song generated successfully!', 'status-done');
+          } else {
+            setStatus('⚠️ Song generated but no audio URL returned.', 'status-error');
+          }
+          setTimeout(() => setProgress(null), 2000);
+        } catch (e) {
+          setStatus(`❌ Song generation failed: ${e.message}`, 'status-error');
+          setProgress(null);
+        } finally {
+          $("generateBtn").disabled = false;
+          $("generateBtn").textContent = '🎶 Generate Song';
         }
       };
 

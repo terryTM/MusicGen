@@ -71,6 +71,8 @@ def _run_infer(
     file_type: str = "mp3",
     seed: int = 0,
     randomize_seed: bool = True,
+    vocal_flag: bool = False,
+    negative_text_prompt: str = None,
 ):
     import torch
     from diffrhythm.infer.infer import inference
@@ -100,6 +102,23 @@ def _run_infer(
         device, max_frames, False, None, None, vae
     )
 
+    # When vocal_flag is True, DiffRhythm's default cfm.sample() swaps
+    # style_prompt with vocal.npy, destroying genre info. We handle it:
+    #   - Keep original text style_prompt (genre/mood)
+    #   - Vocals are driven by LRC tokens (only active in positive pred)
+    #   - For the negative_style_prompt we use a GPT-generated
+    #     genre-contrasting description encoded by MuQ. This gives CFG
+    #     maximum separation for genre steering without touching vocals.
+    #   - If no negative_text_prompt was provided, fall back to zeros
+    #     (neutral CFG on style axis).
+    if vocal_flag:
+        if negative_text_prompt:
+            negative_style_prompt = get_text_style_prompt(muq, negative_text_prompt)
+            print(f"[_run_infer] vocal_flag=True → negative_style_prompt from GPT: {negative_text_prompt!r}")
+        else:
+            negative_style_prompt = torch.zeros_like(negative_style_prompt)
+            print("[_run_infer] vocal_flag=True → zeroed negative_style_prompt (no negative_text_prompt provided)")
+
     batch_infer_num = 5 if preference == "quality first" else 1
 
     output = inference(
@@ -117,7 +136,7 @@ def _run_infer(
         sway_sampling_coef=sway_sampling_coef,
         start_time=start_time,
         file_type=file_type,
-        vocal_flag=False,
+        vocal_flag=False,  # handled above; don't let cfm.sample() overwrite style_prompt
         odeint_method=odeint_method,
         pred_frames=pred_frames,
         batch_infer_num=batch_infer_num,
@@ -147,8 +166,13 @@ def _run_infer(
 )
 @modal.fastapi_endpoint(method="POST")
 def generate(data: dict):
+    print(f"[generate] Received keys: {list(data.keys())}")
     lyrics = (data.get("lyrics") or "").strip()
     text_prompt = (data.get("text_prompt") or "").strip()
+    vocal_flag = bool(data.get("vocal_flag", False))
+    negative_text_prompt = (data.get("negative_text_prompt") or "").strip() or None
+    print(f"[generate] lyrics length={len(lyrics)}, preview={lyrics[:120]!r}")
+    print(f"[generate] vocal_flag={vocal_flag}, negative_text_prompt={negative_text_prompt!r}")
     if not text_prompt:
         return {"error": "text_prompt is required"}
 
@@ -173,6 +197,8 @@ def generate(data: dict):
         file_type=file_type,
         seed=seed,
         randomize_seed=randomize_seed,
+        vocal_flag=vocal_flag,
+        negative_text_prompt=negative_text_prompt,
     )
 
     b64 = base64.b64encode(audio_bytes).decode("utf-8")

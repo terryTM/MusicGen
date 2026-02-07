@@ -5,3 +5,7 @@ node_modules/
 *.log
 **/__pycache__
 **/cache_deezer_previews
+test_outputs
+*.sh
+test*
+generated
