@@ -86,7 +86,7 @@
       <input id="playlistLink" type="text" placeholder="https://music.youtube.com/playlist?list=..." />
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button id="fetchBtn" class="btn-primary">🔍 Load Playlist</button>
-        <button id="analyzeBtn" class="btn-analyze" disabled>🧠 Analyze All Tracks</button>
+        <button id="generateBtn" class="btn-analyze" disabled>🎛️ Generate Song</button>
       </div>
       <div style="margin-top:10px;">
         <small id="status">Ready to load a playlist</small>
@@ -110,16 +110,8 @@
       <div id="tracksList"><small>Load a playlist to see tracks</small></div>
     </div>
     <div class="card" style="margin-top: 18px;">
-      <h2>Generate Song (DiffRythm)</h2>
-      <div>
-        <label for="genPrompt">Prompt</label>
-        <textarea id="genPrompt" rows="6" style="width:100%;">Generate a dynamic and energetic hip-hop playlist with dominant sub-genres of trap and melodic rap. The mood is vibrant and intense, with an emotional arc ranging from steady confidence to peak intensity, characterized by fast to very fast tempos (112-172 BPM) and a metronomic, driving rhythmic feel. Key instrumentation includes punchy percussion, frequent transients, and a balanced mid-range timbre, with rich harmonic elements and a spectrally wide production style. Vocals are assertive and rhythmic, with a mix of melodic hooks and rapid-fire verses. The overall energy level is high, with loud, compressed dynamics and a mix of steady and building energy arcs. The soundscape is immersive, with a balance of melodic and percussive elements, occasionally warm and slightly dark, creating a compelling, modern hip-hop sound.</textarea>
-      </div>
-      <div style="margin-top:8px;">
-        <button id="genBtn" style="background:#0070f3;color:white;padding:10px 16px;border-radius:8px;border:none;">🎛️ Generate Song</button>
-        <small id="genStatus" style="margin-left:12px;color:#666"></small>
-      </div>
-      <div id="generatedList" style="margin-top:12px"></div>
+      <h2>Generated Audio</h2>
+      <div id="generatedList"><small>No generations yet</small></div>
     </div>
 
     <script type="module">
@@ -241,37 +233,10 @@
         playlistId = extractPlaylistId(link);
         if (!playlistId) { setStatus("❌ Invalid playlist link"); return; }
 
-      // Generation UI
-      $("genBtn").addEventListener('click', async () => {
-        const prompt = $("genPrompt").value.trim();
-        if (!prompt) return $("genStatus").textContent = 'Please enter a prompt.';
-        try {
-          $("genStatus").textContent = '⏳ Generating... this can take a while';
-          const resp = await fetch('/api/generate', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ prompt }) });
-          if (!resp.ok) {
-            const err = await resp.json().catch(() => ({}));
-            throw new Error(err.error || `Error ${resp.status}`);
-          }
-          const data = await resp.json();
-          const url = data.url;
-          const id = `gen-${Date.now()}`;
-          const html = `
-            <div style="padding:10px;border:1px solid #eee;border-radius:8px;margin-top:8px;">
-              <div><b>Generated Song</b></div>
-              <audio controls src="${url}" style="width:100%; margin-top:8px;"></audio>
-              <div style="margin-top:8px;"><a href="${url}" download>Download WAV</a></div>
-            </div>
-          `;
-          $("generatedList").insertAdjacentHTML('afterbegin', html);
-          $("genStatus").textContent = '✅ Generated';
-        } catch (e) {
-          $("genStatus").textContent = `❌ ${e.message}`;
-        }
-      });
         try {
           setStatus("⏳ Fetching playlist & matching Deezer previews…");
           setProgress(null);
-          $("analyzeBtn").disabled = true;
+          $("generateBtn").disabled = true;
 
           const resp = await fetch(`/api/playlist/${playlistId}/deezer-previews`);
           if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || resp.status);
@@ -290,23 +255,35 @@
           }));
 
           renderAllTracks();
-          $("analyzeBtn").disabled = false;
-          setStatus(`✅ Loaded ${tracksData.length} tracks. Hit <b>Analyze</b> for audio analysis + descriptions.`);
+          $("generateBtn").disabled = false;
+          setStatus(`✅ Loaded ${tracksData.length} tracks. Hit <b>Generate Song</b> to analyze + generate.`);
         } catch (e) {
           setStatus(`❌ ${e.message}`);
         }
       };
 
-      // ── Analyze all tracks (calls Modal GPU backend) ──
-      $("analyzeBtn").onclick = async () => {
+      // ── Analyze + generate song (backend pipeline) ──
+      $("generateBtn").onclick = async () => {
         if (!playlistId || tracksData.length === 0) return;
 
-        $("analyzeBtn").disabled = true;
-        setStatus("🧠 Analyzing audio features on GPU + generating playlist summary…", 'status-analyzing');
+        $("generateBtn").disabled = true;
+        setStatus("🧠 Analyzing audio features on GPU + generating song…", 'status-analyzing');
         setProgress(10);
 
         try {
-          const resp = await fetch(`/api/playlist/${playlistId}/analysis`);
+          const resp = await fetch(`/api/playlist/${playlistId}/generate-song`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+              options: {
+                duration: 95,
+                preference: 'speed first',
+                file_type: 'mp3',
+                steps: 32,
+                cfg_strength: 4.0
+              }
+            })
+          });
           if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || resp.status);
 
           setProgress(80);
@@ -331,16 +308,30 @@
             $("summaryCard").style.display = "block";
           }
 
+          // Show generated audio if available
+          if (data.generated?.url) {
+            const url = data.generated.url;
+            const html = `
+              <div style="padding:10px;border:1px solid #eee;border-radius:8px;margin-top:8px;">
+                <div><b>Generated Song</b></div>
+                <audio controls src="${url}" style="width:100%; margin-top:8px;"></audio>
+                <div style="margin-top:8px;"><a href="${url}" download>Download Audio</a></div>
+              </div>
+            `;
+            $("generatedList").innerHTML = '';
+            $("generatedList").insertAdjacentHTML('afterbegin', html);
+          }
+
           setProgress(100);
 
           const analyzed = tracksData.filter(t => t.audio_features).length;
-          setStatus(`✅ ${analyzed}/${tracksData.length} tracks analyzed with audio features + descriptions.`, 'status-done');
+          setStatus(`✅ Generated song. ${analyzed}/${tracksData.length} tracks analyzed with audio features + descriptions.`, 'status-done');
           setTimeout(() => setProgress(null), 2000);
         } catch (e) {
-          setStatus(`❌ Analysis failed: ${e.message}`, 'status-error');
+          setStatus(`❌ Generation failed: ${e.message}`, 'status-error');
           setProgress(null);
         } finally {
-          $("analyzeBtn").disabled = false;
+          $("generateBtn").disabled = false;
         }
       };
 

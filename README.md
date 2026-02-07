@@ -31,6 +31,7 @@ SPOTIFY_CLIENT_ID=your_client_id_here
 SPOTIFY_CLIENT_SECRET=your_client_secret_here
 REDIRECT_URI=http://localhost:3000/callback
 PORT=3000
+DIFFRHYTHM_MODAL_URL=https://<your-modal-endpoint>
 ```
 
 ### 3. Install Dependencies

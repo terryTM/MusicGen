@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import ytpl from "ytpl";
 import https from "https";
 import http from "http";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -31,6 +32,11 @@ app.use('/node_modules', express.static(__dirname + '/node_modules', {
     }
   }
 }));
+
+const DIFFRHYTHM_BASE = process.env.DIFFRHYTHM_URL || 'https://aslp-lab-diffrhythm.hf.space';
+const DIFFRHYTHM_API = `${DIFFRHYTHM_BASE}/gradio_api`;
+const DIFFRHYTHM_TOKEN = process.env.DIFFRHYTHM_TOKEN || null;
+const DIFFRHYTHM_MODAL_URL = process.env.DIFFRHYTHM_MODAL_URL || null;
 
 // Extract playlist ID from YouTube Music link
 function extractPlaylistId(url) {
@@ -218,6 +224,341 @@ app.post('/api/generate', async (req, res) => {
     return res.json({ url: `/generated/${filename}` });
   } catch (e) {
     console.error('Generation error:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- DiffRhythm (Hugging Face Space) generation endpoint ---
+// POST /api/diffrhythm { prompt: string, lyrics?: string, options?: { duration, steps, cfg_strength, seed, randomize_seed, file_type, odeint_method, preference } }
+function formatLrcTimestamp(totalSeconds) {
+  const mm = Math.floor(totalSeconds / 60);
+  const ss = Math.floor(totalSeconds % 60);
+  const cc = Math.floor((totalSeconds - Math.floor(totalSeconds)) * 100);
+  return `[${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(cc).padStart(2, '0')}]`;
+}
+
+function generateLrcFromText(text, durationSec = 95, maxLines = 24) {
+  const clean = String(text || '')
+    .replace(/\r/g, '\n')
+    .split(/[\n.!?]+/g)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const lines = (clean.length ? clean : ['Instrumental']).slice(0, maxLines);
+  const startOffset = 4.0;
+  const endTime = Math.max(startOffset + 5, Math.min(durationSec, 285) - 2);
+  const step = (endTime - startOffset) / Math.max(lines.length, 1);
+
+  return lines
+    .map((line, i) => `${formatLrcTimestamp(startOffset + step * i)} ${line}`)
+    .join('\n');
+}
+
+async function waitForGradioComplete(url, timeoutMs = 15 * 60 * 1000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const res = await fetch(url, {
+    headers: {
+      Accept: 'text/event-stream',
+      ...(DIFFRHYTHM_TOKEN ? { Authorization: `Bearer ${DIFFRHYTHM_TOKEN}` } : {}),
+    },
+    signal: controller.signal,
+  });
+  if (!res.ok) {
+    clearTimeout(timer);
+    throw new Error(`DiffRhythm stream error: ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let lastEvent = null;
+  let lastData = null;
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        const chunk = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+
+        let eventType = null;
+        let dataStr = '';
+        for (const line of chunk.split('\n')) {
+          if (line.startsWith('event:')) eventType = line.slice(6).trim();
+          if (line.startsWith('data:')) dataStr += line.slice(5).trim();
+        }
+
+        if (eventType) lastEvent = eventType;
+        if (dataStr !== undefined) lastData = dataStr;
+
+        if (eventType === 'error') {
+          const detail = dataStr && dataStr !== 'null' ? dataStr : 'null';
+          throw new Error(`DiffRhythm error (event: error, data: ${detail})`);
+        }
+
+        if (eventType === 'complete') {
+          if (!dataStr || dataStr === 'null') return null;
+          try {
+            return JSON.parse(dataStr);
+          } catch {
+            return null;
+          }
+        }
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const suffix = lastEvent ? ` (last event: ${lastEvent}${lastData ? `, data: ${lastData}` : ''})` : '';
+  throw new Error('DiffRhythm stream ended without completion' + suffix);
+}
+
+async function downloadToGenerated(url, ext = 'mp3') {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Failed to download DiffRhythm audio: ${resp.status}`);
+  const ab = await resp.arrayBuffer();
+  const genDir = join(dirname(fileURLToPath(import.meta.url)), 'generated');
+  await fs.mkdir(genDir, { recursive: true });
+  const suffix = crypto.randomBytes(6).toString('hex');
+  const filename = `diffrhythm_${Date.now()}_${suffix}.${ext}`;
+  const filepath = join(genDir, filename);
+  await fs.writeFile(filepath, Buffer.from(ab));
+  return `/generated/${filename}`;
+}
+
+async function saveBase64ToGenerated(b64, ext = 'mp3') {
+  const genDir = join(dirname(fileURLToPath(import.meta.url)), 'generated');
+  await fs.mkdir(genDir, { recursive: true });
+  const suffix = crypto.randomBytes(6).toString('hex');
+  const filename = `diffrhythm_${Date.now()}_${suffix}.${ext}`;
+  const filepath = join(genDir, filename);
+  const buf = Buffer.from(b64, 'base64');
+  await fs.writeFile(filepath, buf);
+  return `/generated/${filename}`;
+}
+
+async function callDiffRhythm(prompt, lrc, options = {}) {
+  if (DIFFRHYTHM_MODAL_URL) {
+    const resp = await fetch(DIFFRHYTHM_MODAL_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text_prompt: prompt,
+        lyrics: lrc,
+        options,
+      }),
+    });
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => '');
+      throw new Error(`Modal DiffRhythm failed: ${resp.status} ${txt}`);
+    }
+    const data = await resp.json();
+    if (data.error) throw new Error(`Modal DiffRhythm error: ${data.error}`);
+    if (!data.audio_base64) throw new Error('Modal DiffRhythm returned no audio_base64');
+    const ext = data.file_type || options.file_type || 'mp3';
+    const url = await saveBase64ToGenerated(data.audio_base64, ext);
+    return { url, lyrics_used: lrc };
+  }
+
+  const callResp = await fetch(`${DIFFRHYTHM_API}/call/infer_music`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(DIFFRHYTHM_TOKEN ? { Authorization: `Bearer ${DIFFRHYTHM_TOKEN}` } : {}),
+    },
+    body: JSON.stringify({
+      data: [
+        lrc,
+        null,
+        prompt,
+        'text',
+        Number.isFinite(options.seed) ? Number(options.seed) : 0,
+        options.randomize_seed !== false,
+        Number(options.steps || 32),
+        Number(options.cfg_strength || 4.0),
+        options.file_type || 'mp3',
+        options.odeint_method || 'euler',
+        options.preference || 'speed first',
+        Number(options.duration || 95),
+      ],
+    }),
+  });
+
+  if (!callResp.ok) {
+    const txt = await callResp.text().catch(() => '');
+    throw new Error(`DiffRhythm call failed: ${callResp.status} ${txt}`);
+  }
+
+  const { event_id } = await callResp.json();
+  if (!event_id) throw new Error('DiffRhythm did not return event_id');
+
+  const result = await waitForGradioComplete(`${DIFFRHYTHM_API}/call/infer_music/${event_id}`);
+  const file = result?.data?.[0] || null;
+  const fileUrl = file?.url || null;
+
+  let url = fileUrl;
+  if (fileUrl) {
+    try {
+      url = await downloadToGenerated(fileUrl, options.file_type || 'mp3');
+    } catch (_) {
+      url = fileUrl;
+    }
+  }
+
+  if (!url) throw new Error('DiffRhythm returned no audio URL');
+  return { url, lyrics_used: lrc };
+}
+
+app.post('/api/diffrhythm', async (req, res) => {
+  try {
+    const { prompt, lyrics, options } = req.body || {};
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ error: 'Missing prompt in request body' });
+    }
+
+    const opts = options && typeof options === 'object' ? options : {};
+    const duration = Number(opts.duration || 95);
+    const steps = Number(opts.steps || 32);
+    const cfgStrength = Number(opts.cfg_strength || 4.0);
+    const seed = Number.isFinite(opts.seed) ? Number(opts.seed) : 0;
+    const randomizeSeed = opts.randomize_seed !== false;
+    const fileType = opts.file_type || 'mp3';
+    const odeintMethod = opts.odeint_method || 'euler';
+    const preference = opts.preference || 'speed first';
+
+    const lrc = lyrics && typeof lyrics === 'string' && lyrics.trim()
+      ? lyrics.trim()
+      : generateLrcFromText(prompt, duration, opts.lrc_max_lines || 24);
+
+    const result = await callDiffRhythm(prompt, lrc, {
+      duration,
+      steps,
+      cfg_strength: cfgStrength,
+      seed,
+      randomize_seed: randomizeSeed,
+      file_type: fileType,
+      odeint_method: odeintMethod,
+      preference,
+      lrc_max_lines: opts.lrc_max_lines || 24,
+    });
+
+    return res.json(result);
+  } catch (e) {
+    console.error('DiffRhythm error:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Full pipeline: analyze playlist -> use summary -> DiffRhythm ---
+// POST /api/playlist/:id/generate-song { options?: { duration, steps, cfg_strength, seed, randomize_seed, file_type, odeint_method, preference } }
+app.post('/api/playlist/:id/generate-song', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'No playlist ID provided' });
+
+    // Reuse analysis pipeline to produce playlist_summary
+    // This mirrors GET /api/playlist/:id/analysis but in POST flow
+    const yt = await getYouTubePlaylist(id);
+
+    const tracksWithDeezer = [];
+    for (const t of yt.tracks) {
+      const artist = Array.isArray(t.artists) ? t.artists.join(' ') : t.artists;
+      let deezerMatch = null;
+      try {
+        deezerMatch = await searchDeezerPreview(t.name, artist);
+      } catch (_) {}
+      tracksWithDeezer.push({
+        name: t.name,
+        artist,
+        duration: t.duration,
+        duration_ms: durationToMs(t.duration),
+        thumbnail: t.thumbnail,
+        deezer: deezerMatch,
+      });
+    }
+
+    const batchBody = {
+      tracks: tracksWithDeezer.map(t => ({
+        name: t.name,
+        artist: t.artist,
+        duration_ms: t.duration_ms,
+        preview_url: t.deezer?.preview || null,
+      })),
+    };
+
+    let analysisResults = [];
+    let playlistSummary = null;
+
+    const backendUrl = MODAL_URL || `${FLASK_URL}/analyze-batch`;
+    const backendName = MODAL_URL ? 'Modal' : 'Flask';
+    console.log(`[analysis] Using ${backendName} backend: ${backendUrl}`);
+
+    try {
+      const resp = await fetch(backendUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(batchBody),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        analysisResults = data.results || [];
+        playlistSummary = data.playlist_summary || null;
+      } else {
+        console.error(`${backendName} batch failed:`, resp.status);
+      }
+    } catch (err) {
+      console.error(`${backendName} unavailable:`, err.message);
+    }
+
+    const merged = tracksWithDeezer.map((t, i) => {
+      const analysis = analysisResults[i] || {};
+      return {
+        ...t,
+        audio_features: analysis.audio_features || null,
+        tags: analysis.tags || null,
+        description: analysis.description || null,
+      };
+    });
+
+    if (!playlistSummary) {
+      return res.status(502).json({ error: 'No playlist summary returned from analysis backend', tracks: merged, playlist: { name: yt.name, totalTracks: yt.totalTracks } });
+    }
+
+    // Call DiffRhythm using the summary as prompt
+    const { options } = req.body || {};
+    const duration = Number(options?.duration || 95);
+    const lrc = generateLrcFromText(playlistSummary, duration, options?.lrc_max_lines || 24);
+    let drResult;
+    try {
+      drResult = await callDiffRhythm(playlistSummary, lrc, {
+        duration,
+        steps: Number(options?.steps || 32),
+        cfg_strength: Number(options?.cfg_strength || 4.0),
+        seed: Number.isFinite(options?.seed) ? Number(options.seed) : 0,
+        randomize_seed: options?.randomize_seed !== false,
+        file_type: options?.file_type || 'mp3',
+        odeint_method: options?.odeint_method || 'euler',
+        preference: options?.preference || 'speed first',
+        lrc_max_lines: options?.lrc_max_lines || 24,
+      });
+    } catch (err) {
+      return res.status(502).json({ error: err.message, tracks: merged, playlist: { name: yt.name, totalTracks: yt.totalTracks }, playlist_summary: playlistSummary });
+    }
+
+    res.json({
+      playlist: { name: yt.name, totalTracks: yt.totalTracks },
+      tracks: merged,
+      playlist_summary: playlistSummary,
+      generated: { url: drResult.url },
+    });
+  } catch (e) {
+    console.error('Generate-song error:', e);
     return res.status(500).json({ error: e.message });
   }
 });
