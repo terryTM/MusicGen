@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Butterchurn Music Visualizer</title>
+    <title>Music Visualizer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
       * {
@@ -18,14 +18,13 @@
         overflow: hidden;
       }
 
-      #canvas {
+      #visualizer-container {
         position: fixed;
         top: 0;
         left: 0;
         width: 100vw;
         height: 100vh;
         display: block;
-        z-index: 1;
       }
 
       .controls {
@@ -43,98 +42,8 @@
         transition: all 0.3s ease;
       }
 
-      .controls h1 {
-        margin-bottom: 20px;
-        font-size: 24px;
-        text-align: center;
-      }
-
-      .input-group {
-        margin-bottom: 15px;
-      }
-
-      .input-group label {
-        display: block;
-        margin-bottom: 8px;
-        font-weight: bold;
-        font-size: 14px;
-      }
-
-      .input-group input {
-        width: 100%;
-        padding: 10px;
-        border: 1px solid #444;
-        border-radius: 6px;
-        background: #222;
-        color: #fff;
-        font-size: 14px;
-      }
-
-      .input-group input:focus {
-        outline: none;
-        border-color: #0066ff;
-      }
-
-      .btn-group {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 15px;
-      }
-
-      button {
-        flex: 1;
-        padding: 12px;
-        border: none;
-        border-radius: 6px;
-        font-weight: bold;
-        font-size: 14px;
-        cursor: pointer;
-        transition: all 0.2s;
-      }
-
-      button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-      }
-
-      button:active {
-        transform: translateY(0);
-      }
-
-      .btn-primary {
-        background: #0066ff;
-        color: white;
-      }
-
-      .btn-primary:hover {
-        background: #0052cc;
-      }
-
-      .btn-success {
-        background: #00aa00;
-        color: white;
-      }
-
-      .btn-success:hover {
-        background: #008800;
-      }
-
-      .btn-danger {
-        background: #ff3b30;
-        color: white;
-      }
-
-      .btn-danger:hover {
-        background: #cc2f26;
-      }
-
-      .btn-secondary {
-        background: #555;
-        color: white;
-      }
-
-      .btn-secondary:hover {
-        background: #666;
+      .controls.minimized {
+        transform: translate(-50%, -50%) translateY(-200%);
       }
 
       .status {
@@ -185,45 +94,6 @@
         transform: translate(-50%, -50%) translateY(-200%);
       }
 
-      .show-hide-btn {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 101;
-        padding: 8px 12px;
-        background: rgba(0, 0, 0, 0.3);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 6px;
-        color: rgba(255, 255, 255, 0.6);
-        cursor: pointer;
-        font-size: 12px;
-        transition: all 0.2s;
-        opacity: 0.5;
-      }
-
-      .show-hide-btn:hover {
-        background: rgba(0, 0, 0, 0.5);
-        color: rgba(255, 255, 255, 0.9);
-        opacity: 1;
-      }
-
-      .page-dimmer {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background: rgba(0, 0, 0, 0.15);
-        z-index: 50;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.3s ease;
-      }
-
-      .page-dimmer.active {
-        opacity: 1;
-      }
-
       .preset-controls-section {
         margin-top: 20px;
         padding-top: 20px;
@@ -235,14 +105,6 @@
         font-size: 16px;
         color: #fff;
         text-align: center;
-      }
-
-      .side-panel h3 {
-        margin-bottom: 15px;
-        font-size: 18px;
-        color: #fff;
-        border-bottom: 1px solid #444;
-        padding-bottom: 10px;
       }
 
       .control-section {
@@ -279,52 +141,45 @@
         margin-top: 10px;
       }
 
+      button {
+        flex: 1;
+        padding: 12px;
+        border: none;
+        border-radius: 6px;
+        font-weight: bold;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      }
+
+      button:active {
+        transform: translateY(0);
+      }
+
       .preset-controls button {
         flex: 1;
         padding: 8px;
         font-size: 12px;
       }
 
-      .info-box {
-        background: rgba(255, 255, 255, 0.05);
-        padding: 10px;
-        border-radius: 6px;
-        font-size: 12px;
-        color: #aaa;
-        margin-top: 10px;
+      .btn-secondary {
+        background: #555;
+        color: white;
       }
 
-      .info-box strong {
-        color: #fff;
-        display: block;
-        margin-bottom: 5px;
-      }
-
-      .side-panel::-webkit-scrollbar {
-        width: 8px;
-      }
-
-      .side-panel::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 4px;
-      }
-
-      .side-panel::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 4px;
-      }
-
-      .side-panel::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.3);
+      .btn-secondary:hover {
+        background: #666;
       }
     </style>
   </head>
 
   <body>
     <canvas id="canvas"></canvas>
-    <div class="page-dimmer" id="pageDimmer"></div>
-
-    <button class="show-hide-btn" id="showHideBtn" style="display: none;">Hide Controls</button>
 
     <div class="controls" id="controls">
       <div class="status" id="status">Loading...</div>
@@ -336,17 +191,17 @@
 
       <div class="audio-controls" id="audioControls">
         <audio id="audio" controls crossorigin="anonymous"></audio>
-        
+
         <div class="preset-controls-section">
           <div class="control-section">
-            <label for="presetSelect">Preset:</label>
+            <label for="presetSelect">Select Preset:</label>
             <select id="presetSelect">
               <option value="">Loading presets...</option>
             </select>
             
             <div class="preset-controls">
-              <button class="btn-secondary" id="prevPresetBtn" title="Previous Preset (← key)">← Prev</button>
-              <button class="btn-secondary" id="nextPresetBtn" title="Next Preset (→ key)">Next →</button>
+              <button class="btn-secondary" id="prevPresetBtn" title="Previous Style (← key)">← Prev</button>
+              <button class="btn-secondary" id="nextPresetBtn" title="Next Style (→ key)">Next →</button>
             </div>
           </div>
 
@@ -360,26 +215,14 @@
       </div>
     </div>
 
-
-
-    <script src="/node_modules/butterchurn/lib/butterchurn.min.js"></script>
-    <script src="/node_modules/butterchurn-presets/lib/butterchurnPresets.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/audiomotion-analyzer@4/dist/audiomotion-analyzer.umd.js"></script>
     <script>
-      // Wait for scripts to load
       window.addEventListener('load', function() {
-        console.log('butterchurn:', typeof butterchurn);
-        console.log('butterchurnPresets:', typeof butterchurnPresets);
-        
-      const canvas = document.getElementById('canvas');
+
       const audio = document.getElementById('audio');
-      const audioUrl = document.getElementById('audioUrl');
-      const loadBtn = document.getElementById('loadBtn');
-      const randomPresetBtn = document.getElementById('randomPresetBtn');
       const status = document.getElementById('status');
       const audioControls = document.getElementById('audioControls');
       const controls = document.getElementById('controls');
-      const showHideBtn = document.getElementById('showHideBtn');
-      const pageDimmer = document.getElementById('pageDimmer');
 
       // Check WebGL 2 support
       function checkWebGL2Support() {
@@ -401,123 +244,207 @@
       document.getElementById('songName').textContent = songName;
       document.getElementById('songArtist').textContent = songArtist;
 
-      if (!checkWebGL2Support()) {
-        updateStatus('❌ WebGL 2 is not supported in your browser. Butterchurn requires WebGL 2 to run.', 'error');
-        loadBtn.disabled = true;
-        console.error('WebGL 2 not supported');
-      }
-
-      // Check if butterchurn is loaded
-      if (typeof butterchurn === 'undefined' || !butterchurn.default || typeof butterchurnPresets === 'undefined' || !butterchurnPresets.getPresets) {
-        updateStatus('❌ Failed to load Butterchurn libraries. Please refresh the page.', 'error');
-        loadBtn.disabled = true;
-        console.error('Butterchurn libraries not loaded', { butterchurn, butterchurnPresets });
-      }
-
-      let visualizer = null;
-      let audioContext = null;
-      let audioSource = null;
+      let audioMotion = null;
       let currentPresetIndex = 0;
-      let presets = [];
-      let presetKeys = [];
 
-      // Initialize visualizer
-      function initVisualizer() {
-        try {
-          updateStatus('🔧 Initializing visualizer...', '');
-          
-          if (!audioContext) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      // Visual presets
+      const presets = [
+        {
+          name: 'Radial Prism',
+          options: {
+            mode: 3,
+            radial: true,
+            spinSpeed: 1,
+            gradient: 'prism',
+            showPeaks: true,
+            roundBars: true,
+            barSpace: 0.25,
+            ledBars: false,
+            lumiBars: false,
+            outlineBars: false,
+            mirror: 0,
+            reflexRatio: 0,
+            fillAlpha: 1,
+            lineWidth: 0,
+            channelLayout: 'single',
           }
-
-          if (!visualizer) {
-            visualizer = butterchurn.default.createVisualizer(audioContext, canvas, {
-              width: window.innerWidth,
-              height: window.innerHeight,
-              pixelRatio: window.devicePixelRatio || 1,
-              textureRatio: 1,
-            });
-
-            // Load presets
-            presets = butterchurnPresets.getPresets();
-            presetKeys = Object.keys(presets).sort();
-            
-            if (presetKeys.length === 0) {
-              throw new Error('No presets available');
-            }
-            
-            // Populate preset dropdown
-            populatePresetDropdown();
-            
-            // Load the default preset to start
-            loadDefaultPreset();
-            
-            updateStatus('✓ Visualizer initialized successfully with ' + presetKeys.length + ' presets', 'success');
+        },
+        {
+          name: 'Radial Neon',
+          options: {
+            mode: 2,
+            radial: true,
+            spinSpeed: 2,
+            gradient: 'neon',
+            showPeaks: false,
+            roundBars: false,
+            barSpace: 0.3,
+            ledBars: false,
+            lumiBars: false,
+            outlineBars: true,
+            mirror: 0,
+            reflexRatio: 0,
+            fillAlpha: 0.3,
+            lineWidth: 2,
+            channelLayout: 'single',
           }
-        } catch (error) {
-          updateStatus('❌ Failed to initialize visualizer: ' + error.message, 'error');
-          throw error;
+        },
+        {
+          name: 'Radial LED',
+          options: {
+            mode: 3,
+            radial: true,
+            spinSpeed: 0.5,
+            gradient: 'classic',
+            showPeaks: true,
+            roundBars: false,
+            barSpace: 0.4,
+            ledBars: true,
+            lumiBars: false,
+            outlineBars: false,
+            mirror: 0,
+            reflexRatio: 0,
+            fillAlpha: 1,
+            lineWidth: 0,
+            channelLayout: 'single',
+          }
+        },
+        {
+          name: 'Equalizer',
+          options: {
+            mode: 3,
+            radial: false,
+            spinSpeed: 0,
+            gradient: 'rainbow',
+            showPeaks: true,
+            roundBars: false,
+            barSpace: 0.15,
+            ledBars: true,
+            lumiBars: false,
+            outlineBars: false,
+            mirror: 0,
+            reflexRatio: 0.35,
+            reflexAlpha: 0.2,
+            fillAlpha: 1,
+            lineWidth: 0,
+            channelLayout: 'single',
+          }
+        },
+        {
+          name: 'Waveform',
+          options: {
+            mode: 10,
+            radial: false,
+            spinSpeed: 0,
+            gradient: 'prism',
+            showPeaks: false,
+            roundBars: false,
+            barSpace: 0,
+            ledBars: false,
+            lumiBars: false,
+            outlineBars: false,
+            mirror: 0,
+            reflexRatio: 0,
+            fillAlpha: 0.5,
+            lineWidth: 2,
+            channelLayout: 'single',
+          }
+        },
+        {
+          name: 'Mirror Bars',
+          options: {
+            mode: 5,
+            radial: false,
+            spinSpeed: 0,
+            gradient: 'steelblue',
+            showPeaks: true,
+            roundBars: true,
+            barSpace: 0.2,
+            ledBars: false,
+            lumiBars: false,
+            outlineBars: false,
+            mirror: 1,
+            reflexRatio: 0,
+            fillAlpha: 1,
+            lineWidth: 0,
+            channelLayout: 'single',
+          }
+        },
+        {
+          name: 'Lumi Radial',
+          options: {
+            mode: 4,
+            radial: true,
+            spinSpeed: 1.5,
+            gradient: 'rainbow',
+            showPeaks: false,
+            roundBars: true,
+            barSpace: 0.1,
+            ledBars: false,
+            lumiBars: true,
+            outlineBars: false,
+            mirror: 0,
+            reflexRatio: 0,
+            fillAlpha: 1,
+            lineWidth: 0,
+            channelLayout: 'single',
+          }
+        },
+        {
+          name: 'Dual Channel',
+          options: {
+            mode: 3,
+            radial: false,
+            spinSpeed: 0,
+            gradient: 'prism',
+            showPeaks: true,
+            roundBars: true,
+            barSpace: 0.2,
+            ledBars: false,
+            lumiBars: false,
+            outlineBars: false,
+            mirror: 0,
+            reflexRatio: 0.3,
+            reflexAlpha: 0.15,
+            fillAlpha: 1,
+            lineWidth: 0,
+            channelLayout: 'dual-combined',
+          }
         }
-      }
+      ];
 
       // Populate preset dropdown
       function populatePresetDropdown() {
         const presetSelect = document.getElementById('presetSelect');
         presetSelect.innerHTML = '';
-        
-        presetKeys.forEach((key, index) => {
+        presets.forEach((preset, index) => {
           const option = document.createElement('option');
           option.value = index;
-          option.textContent = key;
+          option.textContent = preset.name;
           presetSelect.appendChild(option);
         });
       }
 
-      // Load preset by index
+      // Apply a preset by index
       function loadPresetByIndex(index) {
-        if (presetKeys.length === 0 || index < 0 || index >= presetKeys.length) return;
-        
+        if (index < 0 || index >= presets.length) return;
         currentPresetIndex = index;
-        const presetKey = presetKeys[currentPresetIndex];
-        const preset = presets[presetKey];
-        
-        visualizer.loadPreset(preset, 2.0); // 2.0 second transition
-        
-        // Update dropdown selection
+        const preset = presets[index];
+
+        // Apply all visual options
+        Object.keys(preset.options).forEach(key => {
+          audioMotion[key] = preset.options[key];
+        });
+
         document.getElementById('presetSelect').value = index;
       }
 
-      // Load a random preset
-      function loadRandomPreset() {
-        if (presetKeys.length === 0) return;
-        const randomIndex = Math.floor(Math.random() * presetKeys.length);
-        loadPresetByIndex(randomIndex);
-      }
-
-      // Load the default preset (Mandala Chasers)
-      function loadDefaultPreset() {
-        if (presetKeys.length === 0) return;
-        const defaultPresetName = 'Phat+fiShbRaiN+Eo.S_Mandala_Chasers_remix';
-        const defaultIndex = presetKeys.indexOf(defaultPresetName);
-        
-        if (defaultIndex !== -1) {
-          loadPresetByIndex(defaultIndex);
-        } else {
-          // Fallback to random if default not found
-          loadRandomPreset();
-        }
-      }
-
-      // Load next preset
       function loadNextPreset() {
-        const nextIndex = (currentPresetIndex + 1) % presetKeys.length;
-        loadPresetByIndex(nextIndex);
+        loadPresetByIndex((currentPresetIndex + 1) % presets.length);
       }
 
-      // Load previous preset
       function loadPrevPreset() {
-        const prevIndex = (currentPresetIndex - 1 + presetKeys.length) % presetKeys.length;
-        loadPresetByIndex(prevIndex);
+        loadPresetByIndex((currentPresetIndex - 1 + presets.length) % presets.length);
       }
 
       // Handle window resize
@@ -575,7 +502,6 @@
 
           // Show audio controls
           audioControls.classList.add('visible');
-          showHideBtn.style.display = 'block';
 
           // Handle successful audio load
           audio.addEventListener('canplay', () => {
@@ -654,24 +580,52 @@
         status.className = 'status ' + type;
       }
 
-      // Auto-load audio if URL is provided
+      // Initialize visualizer and load audio
       if (audioUrlParam) {
-        updateStatus('⏳ Initializing visualizer...', '');
-        
+        updateStatus('Initializing visualizer...', '');
+
         try {
-          // Initialize visualizer
-          initVisualizer();
-          
-          // Set audio source through proxy
+          // Create audioMotion-analyzer instance
+          audioMotion = new AudioMotionAnalyzer(container, {
+            source: audio,
+            mode: 3,
+            radial: true,
+            spinSpeed: 1,
+            gradient: 'prism',
+            showPeaks: true,
+            showScaleX: false,
+            showScaleY: false,
+            showBgColor: true,
+            overlay: false,
+            bgAlpha: 0.7,
+            smoothing: 0.7,
+            roundBars: true,
+            barSpace: 0.25,
+            fftSize: 8192,
+            maxDecibels: -25,
+            minDecibels: -85,
+            connectSpeakers: true,
+          });
+
+          // Register custom neon gradient
+          audioMotion.registerGradient('neon', {
+            bgColor: '#000',
+            colorStops: [
+              '#ff00ff',
+              '#00ffff',
+              '#ff00ff',
+            ]
+          });
+
+          // Populate presets UI
+          populatePresetDropdown();
+          loadPresetByIndex(0);
+
+          updateStatus('Visualizer ready', 'success');
+
+          // Set audio source
           audio.src = audioUrlParam;
           audio.crossOrigin = "anonymous";
-
-          // Create audio source node and connect to visualizer
-          audioSource = audioContext.createMediaElementSource(audio);
-          audioSource.connect(audioContext.destination);
-          
-          // Connect audio to visualizer
-          visualizer.connectAudio(audioSource);
 
           // Show audio controls
           audioControls.classList.add('visible');
@@ -679,92 +633,65 @@
 
           // Handle successful audio load
           audio.addEventListener('canplay', () => {
-            updateStatus('✅ Ready to play!', 'success');
-            // Auto-play
-            audio.play().catch(err => {
-              updateStatus('⚠️ Click play to start (autoplay blocked)', '');
+            updateStatus('Ready to play!', 'success');
+            audio.play().catch(() => {
+              updateStatus('Click play to start (autoplay blocked)', '');
             });
           }, { once: true });
 
           // Handle audio load errors
-          audio.addEventListener('error', (e) => {
-            let errorMsg = '❌ Failed to load audio. ';
+          audio.addEventListener('error', () => {
+            let errorMsg = 'Failed to load audio. ';
             if (audio.error) {
               switch (audio.error.code) {
-                case 1:
-                  errorMsg += 'Loading was aborted.';
-                  break;
-                case 2:
-                  errorMsg += 'Network error.';
-                  break;
-                case 3:
-                  errorMsg += 'Format not supported.';
-                  break;
-                case 4:
-                  errorMsg += 'File not found.';
-                  break;
-                default:
-                  errorMsg += 'Unknown error.';
+                case 1: errorMsg += 'Loading was aborted.'; break;
+                case 2: errorMsg += 'Network error.'; break;
+                case 3: errorMsg += 'Format not supported.'; break;
+                case 4: errorMsg += 'File not found.'; break;
+                default: errorMsg += 'Unknown error.';
               }
             }
             updateStatus(errorMsg, 'error');
           }, { once: true });
 
-          // Start rendering when audio plays
+          // Audio state events
           audio.addEventListener('play', () => {
-            if (audioContext.state === 'suspended') {
-              audioContext.resume();
+            if (audioMotion.audioCtx.state === 'suspended') {
+              audioMotion.audioCtx.resume();
             }
-            startRenderLoop();
             updateStatus('Playing', '');
             pageDimmer.classList.add('active');
           });
 
-          // Handle pause
           audio.addEventListener('pause', () => {
             updateStatus('Paused', '');
             pageDimmer.classList.remove('active');
           });
 
-          // Handle audio end
           audio.addEventListener('ended', () => {
             updateStatus('Playback finished', '');
             pageDimmer.classList.remove('active');
           });
 
         } catch (error) {
-          console.error('Error loading audio:', error);
-          updateStatus(`❌ Failed: ${error.message}`, 'error');
+          console.error('Error initializing visualizer:', error);
+          updateStatus('Failed: ' + error.message, 'error');
         }
       } else {
-        updateStatus('❌ No audio URL provided', 'error');
+        updateStatus('No audio URL provided', 'error');
       }
 
       // Event listeners
-      // Side panel controls
       document.getElementById('presetSelect').addEventListener('change', (e) => {
-        const index = parseInt(e.target.value);
-        loadPresetByIndex(index);
+        loadPresetByIndex(parseInt(e.target.value));
       });
 
-      document.getElementById('nextPresetBtn').addEventListener('click', () => {
-        loadNextPreset();
-      });
+      document.getElementById('nextPresetBtn').addEventListener('click', loadNextPreset);
+      document.getElementById('prevPresetBtn').addEventListener('click', loadPrevPreset);
 
-      document.getElementById('prevPresetBtn').addEventListener('click', () => {
-        loadPrevPreset();
-      });
-
-      // Show/hide controls button
-      showHideBtn.addEventListener('click', () => {
-        controls.classList.toggle('minimized');
-        const isMinimized = controls.classList.contains('minimized');
-        showHideBtn.textContent = isMinimized ? 'Show Controls' : 'Hide Controls';
-      });
-
-      // Keyboard navigation for presets, spacebar controls, and Enter for play/pause
+      // Keyboard navigation for presets and spacebar controls
       document.addEventListener('keydown', (e) => {
-        // Only handle special keys when not typing in inputs
+        // Only handle arrow keys when not typing in inputs
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
           return;
         }
@@ -792,29 +719,13 @@
         }
       });
 
-      window.addEventListener('resize', handleResize);
-
-      // Handle Enter key in input
-      audioUrl.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-          loadAudio();
-        }
-      });
-
       // Auto-change preset every 30 seconds
       setInterval(() => {
-        const autoChange = document.getElementById('autoChangeCheckbox').checked;
-        if (visualizer && !audio.paused && autoChange) {
+        if (document.getElementById('autoChangeCheckbox').checked && !audio.paused) {
           loadRandomPreset();
         }
       }, 30000);
 
-      // Initial canvas sizing
-      handleResize();
-
-      // Add sample MP3 URL for testing
-      // audioUrl.value = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
-      
       }); // End window.load
     </script>
   </body>
