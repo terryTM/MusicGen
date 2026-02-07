@@ -5,638 +5,422 @@
     <title>Music Visualizer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-
+      * { margin: 0; padding: 0; box-sizing: border-box; }
       body {
-        font-family: 'Poppins', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        font-family: 'Poppins', system-ui, -apple-system, sans-serif;
         background: #000;
         color: #fff;
         overflow: hidden;
       }
-
-      #visualizer-container {
+      canvas { display: block; }
+      .overlay {
         position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        display: block;
-        z-index: 1;
-      }
-
-      .controls {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        z-index: 100;
-        background: rgba(0, 0, 0, 0.6);
-        padding: 16px;
-        border-radius: 16px;
-        backdrop-filter: blur(8px);
-        min-width: 400px;
-        max-width: min(85vw, 500px);
-        transition: all 0.3s ease;
-      }
-
-      .controls.minimized {
-        transform: translate(-50%, -50%) translateY(-200%);
-      }
-
-      .status {
-        text-align: center;
-        padding: 10px;
-        border-radius: 6px;
-        background: rgba(255, 255, 255, 0.1);
-        font-size: 13px;
-        margin-bottom: 15px;
-      }
-
-      .status.error {
-        background: rgba(255, 59, 48, 0.2);
-        color: #ff6b6b;
-      }
-
-      .status.success {
-        background: rgba(0, 170, 0, 0.2);
-        color: #5dff5d;
-      }
-
-      .audio-controls {
-        display: none;
-        margin-top: 15px;
-        padding: 15px;
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 6px;
-      }
-
-      .audio-controls.visible {
-        display: block;
-      }
-
-      audio {
-        width: 100%;
-        margin-bottom: 10px;
-      }
-
-      .show-hide-btn {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 101;
-        padding: 8px 12px;
-        background: rgba(0, 0, 0, 0.3);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 6px;
-        color: rgba(255, 255, 255, 0.6);
-        cursor: pointer;
-        font-size: 12px;
-        transition: all 0.2s;
-        opacity: 0.5;
-      }
-
-      .show-hide-btn:hover {
-        background: rgba(0, 0, 0, 0.5);
-        color: rgba(255, 255, 255, 0.9);
-        opacity: 1;
-      }
-
-      .page-dimmer {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background: rgba(0, 0, 0, 0.15);
-        z-index: 50;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.3s ease;
-      }
-
-      .page-dimmer.active {
-        opacity: 1;
-      }
-      .preset-controls-section {
-        margin-top: 20px;
-        padding-top: 20px;
-        border-top: 1px solid #444;
-      }
-
-      .preset-controls-section h3 {
-        margin-bottom: 15px;
-        font-size: 16px;
-        color: #fff;
-        text-align: center;
-      }
-
-      .control-section {
-        margin-bottom: 20px;
-      }
-
-      .control-section label {
-        display: block;
-        margin-bottom: 8px;
-        font-size: 13px;
-        color: #aaa;
-        font-weight: bold;
-      }
-
-      select {
-        width: 100%;
-        padding: 10px;
-        border: 1px solid #444;
-        border-radius: 6px;
-        background: #222;
-        color: #fff;
-        font-size: 14px;
-        cursor: pointer;
-      }
-
-      select:focus {
-        outline: none;
-        border-color: #0066ff;
-      }
-
-      .preset-controls {
+        top: 0; left: 0; right: 0;
+        z-index: 10;
         display: flex;
-        gap: 8px;
-        margin-top: 10px;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: 20px 24px;
+        pointer-events: none;
+        transition: opacity 0.5s;
       }
-
-      button {
-        flex: 1;
-        padding: 12px;
-        border: none;
-        border-radius: 6px;
-        font-weight: bold;
-        font-size: 14px;
+      .overlay.hidden { opacity: 0; }
+      .song-info {
+        background: rgba(0,0,0,0.5);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.08);
+        padding: 12px 20px;
+        border-radius: 12px;
+        pointer-events: auto;
+      }
+      .song-name { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+      .song-artist { font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 2px; }
+      .controls-btn {
+        pointer-events: auto;
+        padding: 8px 14px;
+        background: rgba(0,0,0,0.4);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 8px;
+        color: rgba(255,255,255,0.6);
         cursor: pointer;
+        font-size: 12px;
         transition: all 0.2s;
       }
-
-      button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      .controls-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+      .bottom-bar {
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        z-index: 10;
+        padding: 16px 24px;
+        display: flex;
+        justify-content: center;
+        pointer-events: none;
+        transition: opacity 0.5s;
       }
-
-      button:active {
-        transform: translateY(0);
+      .bottom-bar.hidden { opacity: 0; }
+      .audio-wrap {
+        pointer-events: auto;
+        background: rgba(0,0,0,0.5);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.08);
+        padding: 12px 20px;
+        border-radius: 14px;
+        width: 100%;
+        max-width: 500px;
       }
-
-      .preset-controls button {
-        flex: 1;
-        padding: 8px;
-        font-size: 12px;
+      audio { width: 100%; height: 36px; }
+      .loading-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        background: #000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        transition: opacity 0.6s;
       }
-
-      .btn-secondary {
-        background: #555;
-        color: white;
-      }
-
-      .btn-secondary:hover {
-        background: #666;
-      }
+      .loading-screen.fade-out { opacity: 0; pointer-events: none; }
+      .loader { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #a78bfa; border-radius: 50%; animation: spin 0.8s linear infinite; }
+      .loader-text { margin-top: 16px; font-size: 13px; color: rgba(255,255,255,0.5); }
+      @keyframes spin { to { transform: rotate(360deg); } }
     </style>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
-
   <body>
-    <div id="visualizer-container"></div>
-    <div class="page-dimmer" id="pageDimmer"></div>
+    <div class="loading-screen" id="loadingScreen">
+      <div class="loader"></div>
+      <div class="loader-text" id="loaderText">Loading visualizer…</div>
+    </div>
 
-    <button class="show-hide-btn" id="showHideBtn" style="display: none;">Hide Controls</button>
-
-    <div class="controls" id="controls">
-      <div class="status" id="status">Loading...</div>
-
-      <div id="songInfo" style="text-align: center; margin-bottom: 15px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
-        <div style="font-size: 16px; font-weight: bold; margin-bottom: 5px;" id="songName">-</div>
-        <div style="font-size: 13px; color: #aaa;" id="songArtist">-</div>
+    <div class="overlay" id="overlay">
+      <div class="song-info">
+        <div class="song-name" id="songName">—</div>
+        <div class="song-artist" id="songArtist">—</div>
       </div>
+      <button class="controls-btn" id="toggleUI">Hide UI</button>
+    </div>
 
-      <div class="audio-controls" id="audioControls">
+    <div class="bottom-bar" id="bottomBar">
+      <div class="audio-wrap">
         <audio id="audio" controls crossorigin="anonymous"></audio>
-
-        <div class="preset-controls-section">
-          <div class="control-section">
-            <label for="presetSelect">Visual Style:</label>
-            <select id="presetSelect"></select>
-            <div class="preset-controls">
-              <button class="btn-secondary" id="prevPresetBtn" title="Previous Style (← key)">← Prev</button>
-              <button class="btn-secondary" id="nextPresetBtn" title="Next Style (→ key)">Next →</button>
-            </div>
-          </div>
-
-          <div class="control-section">
-            <label>
-              <input type="checkbox" id="autoChangeCheckbox">
-              Auto-change every 30s
-            </label>
-          </div>
-        </div>
       </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/audiomotion-analyzer@4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-      // Fallback CDN if jsdelivr fails
-      if (typeof AudioMotionAnalyzer === 'undefined') {
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/audiomotion-analyzer@4';
-        script.onerror = function() {
-          document.getElementById('status').innerHTML = '<span style="color: #ff6b6b;">⚠️ Audio visualizer library failed to load from CDN. Please check your internet connection.</span>';
-        };
-        document.head.appendChild(script);
-      }
-    </script>
-    <script>
-      window.addEventListener('load', function() {
-      
-      // Check if library loaded
-      if (typeof AudioMotionAnalyzer === 'undefined') {
-        console.error('AudioMotionAnalyzer library failed to load');
-        document.getElementById('status').innerHTML = '<span style="color: #ff6b6b;">⚠️ Failed to load audio visualizer library. Trying alternative source...</span>';
-        
-        // Give it a few more seconds for fallback to load
-        setTimeout(function() {
-          if (typeof AudioMotionAnalyzer === 'undefined') {
-            document.getElementById('status').innerHTML = '<span style="color: #ff6b6b;">❌ Could not load visualizer. Please refresh the page.</span>';
-          }
-        }, 3000);
+    (function() {
+      // ── URL params ──
+      const params = new URLSearchParams(location.search);
+      const audioUrl = params.get('url');
+      const songName = params.get('name') || 'Unknown Song';
+      const songArtist = params.get('artist') || 'Unknown Artist';
+      document.getElementById('songName').textContent = songName;
+      document.getElementById('songArtist').textContent = songArtist;
+      document.title = songName + ' – Visualizer';
+
+      if (!audioUrl) {
+        document.getElementById('loaderText').textContent = 'No audio URL provided.';
         return;
       }
 
+      // ── Audio setup ──
       const audio = document.getElementById('audio');
-      const status = document.getElementById('status');
-      const audioControls = document.getElementById('audioControls');
-      const controls = document.getElementById('controls');
-      const showHideBtn = document.getElementById('showHideBtn');
-      const pageDimmer = document.getElementById('pageDimmer');
-      const container = document.getElementById('visualizer-container');
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.82;
+      const freqData = new Uint8Array(analyser.frequencyBinCount);
 
-      // Get URL parameters
-      const urlParams = new URLSearchParams(window.location.search);
-      const audioUrlParam = urlParams.get('url');
-      const songName = urlParams.get('name') || 'Unknown Song';
-      const songArtist = urlParams.get('artist') || 'Unknown Artist';
+      let sourceCreated = false;
+      audio.crossOrigin = 'anonymous';
+      audio.src = audioUrl;
 
-      // Display song info
-      document.getElementById('songName').textContent = songName;
-      document.getElementById('songArtist').textContent = songArtist;
-
-      let audioMotion = null;
-      let currentPresetIndex = 0;
-
-      // Visual presets - classy and elegant
-      const presets = [
-        {
-          name: 'Classic Spectrum',
-          options: {
-            mode: 3,
-            radial: false,
-            spinSpeed: 0,
-            gradient: 'steelblue',
-            showPeaks: true,
-            roundBars: true,
-            barSpace: 0.2,
-            ledBars: false,
-            lumiBars: false,
-            outlineBars: false,
-            mirror: 0,
-            reflexRatio: 0.3,
-            reflexAlpha: 0.2,
-            fillAlpha: 1,
-            lineWidth: 0,
-            channelLayout: 'single',
-          }
-        },
-        {
-          name: 'Elegant Radial',
-          options: {
-            mode: 3,
-            radial: true,
-            spinSpeed: 0.5,
-            gradient: 'prism',
-            showPeaks: true,
-            roundBars: true,
-            barSpace: 0.25,
-            ledBars: false,
-            lumiBars: false,
-            outlineBars: false,
-            mirror: 0,
-            reflexRatio: 0,
-            fillAlpha: 0.8,
-            lineWidth: 0,
-            channelLayout: 'single',
-          }
-        },
-        {
-          name: 'Smooth Lines',
-          options: {
-            mode: 10,
-            radial: false,
-            spinSpeed: 0,
-            gradient: 'classic',
-            showPeaks: false,
-            roundBars: false,
-            barSpace: 0,
-            ledBars: false,
-            lumiBars: false,
-            outlineBars: false,
-            mirror: 0,
-            reflexRatio: 0,
-            fillAlpha: 0.7,
-            lineWidth: 3,
-            channelLayout: 'single',
-          }
-        },
-        {
-          name: 'Sophisticated Bars',
-          options: {
-            mode: 5,
-            radial: false,
-            spinSpeed: 0,
-            gradient: 'rainbow',
-            showPeaks: true,
-            roundBars: true,
-            barSpace: 0.15,
-            ledBars: false,
-            lumiBars: false,
-            outlineBars: false,
-            mirror: 0,
-            reflexRatio: 0.4,
-            reflexAlpha: 0.25,
-            fillAlpha: 1,
-            lineWidth: 0,
-            channelLayout: 'single',
-          }
-        },
-        {
-          name: 'Circular Elegance',
-          options: {
-            mode: 4,
-            radial: true,
-            spinSpeed: 1,
-            gradient: 'classic',
-            showPeaks: false,
-            roundBars: true,
-            barSpace: 0.2,
-            ledBars: false,
-            lumiBars: true,
-            outlineBars: false,
-            mirror: 0,
-            reflexRatio: 0,
-            fillAlpha: 0.9,
-            lineWidth: 0,
-            channelLayout: 'single',
-          }
-        },
-        {
-          name: 'Refined Mirror',
-          options: {
-            mode: 5,
-            radial: false,
-            spinSpeed: 0,
-            gradient: 'steelblue',
-            showPeaks: true,
-            roundBars: true,
-            barSpace: 0.2,
-            ledBars: false,
-            lumiBars: false,
-            outlineBars: false,
-            mirror: 1,
-            reflexRatio: 0,
-            fillAlpha: 1,
-            lineWidth: 0,
-            channelLayout: 'single',
-          }
-        },
-        {
-          name: 'Dual Channel',
-          options: {
-            mode: 3,
-            radial: false,
-            spinSpeed: 0,
-            gradient: 'prism',
-            showPeaks: true,
-            roundBars: true,
-            barSpace: 0.2,
-            ledBars: false,
-            lumiBars: false,
-            outlineBars: false,
-            mirror: 0,
-            reflexRatio: 0.3,
-            reflexAlpha: 0.15,
-            fillAlpha: 1,
-            lineWidth: 0,
-            channelLayout: 'dual-combined',
-          }
+      audio.addEventListener('play', function() {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        if (!sourceCreated) {
+          var source = audioCtx.createMediaElementSource(audio);
+          source.connect(analyser);
+          analyser.connect(audioCtx.destination);
+          sourceCreated = true;
         }
-      ];
+      });
 
-      // Populate preset dropdown
-      function populatePresetDropdown() {
-        const presetSelect = document.getElementById('presetSelect');
-        presetSelect.innerHTML = '';
-        presets.forEach((preset, index) => {
-          const option = document.createElement('option');
-          option.value = index;
-          option.textContent = preset.name;
-          presetSelect.appendChild(option);
+      // ── Three.js scene ──
+      var scene = new THREE.Scene();
+      var camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 1000);
+      camera.position.z = 3.2;
+
+      var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.setClearColor(0x000000, 1);
+      document.body.insertBefore(renderer.domElement, document.body.firstChild);
+
+      // ── Sphere geometry ──
+      var geo = new THREE.IcosahedronGeometry(1, 5);
+
+      // Custom shader material
+      var mat = new THREE.ShaderMaterial({
+        uniforms: {
+          uTime:     { value: 0 },
+          uBass:     { value: 0 },
+          uMid:      { value: 0 },
+          uTreble:   { value: 0 },
+          uEnergy:   { value: 0 },
+          uColor1:   { value: new THREE.Color(0.45, 0.2, 0.95) },
+          uColor2:   { value: new THREE.Color(0.1, 0.7, 0.95) },
+          uColor3:   { value: new THREE.Color(0.95, 0.3, 0.6) },
+        },
+        vertexShader: [
+          'uniform float uTime;',
+          'uniform float uBass;',
+          'uniform float uMid;',
+          'uniform float uTreble;',
+          'uniform float uEnergy;',
+          'varying vec3 vNormal;',
+          'varying vec3 vPosition;',
+          'varying float vDisplacement;',
+          '',
+          'vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}',
+          'vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}',
+          'vec4 perm(vec4 x){return mod289(((x*34.0)+1.0)*x);}',
+          'float noise(vec3 p){',
+          '  vec3 a=floor(p);vec3 d=p-a;d=d*d*(3.0-2.0*d);',
+          '  vec4 b=a.xxyy+vec4(0.0,1.0,0.0,1.0);',
+          '  vec4 k1=perm(b.xyxy);vec4 k2=perm(k1.xyxy+b.zzww);',
+          '  vec4 c=k2+a.zzzz;vec4 k3=perm(c);vec4 k4=perm(c+1.0);',
+          '  vec4 o1=fract(k3*(1.0/41.0));vec4 o2=fract(k4*(1.0/41.0));',
+          '  vec4 o3=o2*d.z+o1*(1.0-d.z);',
+          '  vec2 o4=o3.yw*d.x+o3.xz*(1.0-d.x);',
+          '  return o4.y*d.y+o4.x*(1.0-d.y);',
+          '}',
+          '',
+          'void main(){',
+          '  vNormal=normal;',
+          '  vec3 pos=position;',
+          '  float slow=uTime*0.3;',
+          '  float fast=uTime*1.2;',
+          '  float n1=noise(pos*2.0+slow)*uBass*0.55;',
+          '  float n2=noise(pos*4.0+fast)*uMid*0.35;',
+          '  float n3=noise(pos*8.0-slow*0.7)*uTreble*0.22;',
+          '  float displacement=n1+n2+n3;',
+          '  displacement+=uEnergy*0.08*sin(uTime*2.0+length(pos)*3.0);',
+          '  pos+=normal*displacement;',
+          '  vDisplacement=displacement;',
+          '  vPosition=pos;',
+          '  gl_Position=projectionMatrix*modelViewMatrix*vec4(pos,1.0);',
+          '}',
+        ].join('\n'),
+        fragmentShader: [
+          'uniform float uTime;',
+          'uniform float uBass;',
+          'uniform float uMid;',
+          'uniform float uTreble;',
+          'uniform float uEnergy;',
+          'uniform vec3 uColor1;',
+          'uniform vec3 uColor2;',
+          'uniform vec3 uColor3;',
+          'varying vec3 vNormal;',
+          'varying vec3 vPosition;',
+          'varying float vDisplacement;',
+          '',
+          'void main(){',
+          '  vec3 viewDir=normalize(cameraPosition-vPosition);',
+          '  float fresnel=1.0-max(dot(viewDir,vNormal),0.0);',
+          '  fresnel=pow(fresnel,2.5);',
+          '  float t=vDisplacement*2.0+0.5;',
+          '  vec3 col=mix(uColor1,uColor2,smoothstep(-0.2,0.5,t));',
+          '  col=mix(col,uColor3,smoothstep(0.3,0.8,t));',
+          '  float hueShift=sin(uTime*0.15)*0.5+0.5;',
+          '  col=mix(col,uColor3,hueShift*0.15);',
+          '  col+=vec3(0.6,0.4,1.0)*fresnel*(0.4+uEnergy*0.6);',
+          '  col+=uColor2*uBass*0.15;',
+          '  col+=vec3(0.02,0.01,0.04);',
+          '  gl_FragColor=vec4(col,1.0);',
+          '}',
+        ].join('\n'),
+        wireframe: false,
+      });
+
+      var sphere = new THREE.Mesh(geo, mat);
+      scene.add(sphere);
+
+      // ── Wireframe overlay for extra detail ──
+      var wireMat = new THREE.ShaderMaterial({
+        uniforms: mat.uniforms,
+        vertexShader: mat.vertexShader,
+        fragmentShader: [
+          'uniform float uEnergy;',
+          'uniform float uTime;',
+          'varying float vDisplacement;',
+          'varying vec3 vNormal;',
+          'varying vec3 vPosition;',
+          'void main(){',
+          '  float alpha=0.06+uEnergy*0.12;',
+          '  vec3 col=vec3(0.7,0.5,1.0)*(0.5+vDisplacement);',
+          '  gl_FragColor=vec4(col,alpha);',
+          '}',
+        ].join('\n'),
+        wireframe: true,
+        transparent: true,
+        depthWrite: false,
+      });
+      var wireframe = new THREE.Mesh(geo, wireMat);
+      scene.add(wireframe);
+
+      // ── Particles orbiting ──
+      var particleCount = 800;
+      var pGeo = new THREE.BufferGeometry();
+      var pPositions = new Float32Array(particleCount * 3);
+      var pSizes = new Float32Array(particleCount);
+      for (var i = 0; i < particleCount; i++) {
+        var theta = Math.random() * Math.PI * 2;
+        var phi = Math.acos(2 * Math.random() - 1);
+        var r = 1.6 + Math.random() * 1.2;
+        pPositions[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+        pPositions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+        pPositions[i*3+2] = r * Math.cos(phi);
+        pSizes[i] = Math.random() * 2 + 0.5;
+      }
+      pGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
+      pGeo.setAttribute('size', new THREE.BufferAttribute(pSizes, 1));
+
+      var pMat = new THREE.ShaderMaterial({
+        uniforms: {
+          uTime: mat.uniforms.uTime,
+          uEnergy: mat.uniforms.uEnergy,
+          uPixelRatio: { value: Math.min(devicePixelRatio, 2) },
+        },
+        vertexShader: [
+          'uniform float uTime;',
+          'uniform float uEnergy;',
+          'uniform float uPixelRatio;',
+          'attribute float size;',
+          'varying float vAlpha;',
+          'void main(){',
+          '  vec3 pos=position;',
+          '  float angle=uTime*0.15+length(pos)*0.5;',
+          '  float c=cos(angle),s=sin(angle);',
+          '  pos.xz=mat2(c,-s,s,c)*pos.xz;',
+          '  pos*=1.0+uEnergy*0.15;',
+          '  vAlpha=0.3+uEnergy*0.5;',
+          '  vec4 mv=modelViewMatrix*vec4(pos,1.0);',
+          '  gl_PointSize=size*uPixelRatio*(150.0/-mv.z);',
+          '  gl_Position=projectionMatrix*mv;',
+          '}',
+        ].join('\n'),
+        fragmentShader: [
+          'varying float vAlpha;',
+          'void main(){',
+          '  float d=length(gl_PointCoord-0.5);',
+          '  if(d>0.5)discard;',
+          '  float a=smoothstep(0.5,0.1,d)*vAlpha;',
+          '  gl_FragColor=vec4(0.6,0.4,1.0,a);',
+          '}',
+        ].join('\n'),
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      var particles = new THREE.Points(pGeo, pMat);
+      scene.add(particles);
+
+      // ── Audio analysis helpers ──
+      function getAudioBands() {
+        analyser.getByteFrequencyData(freqData);
+        var len = freqData.length;
+        var bass = 0, mid = 0, treble = 0;
+        var bassEnd = Math.floor(len * 0.10);
+        var midEnd = Math.floor(len * 0.45);
+        var trebleEnd = Math.floor(len * 0.80);
+        for (var i = 0; i < bassEnd; i++) bass += freqData[i];
+        for (var i = bassEnd; i < midEnd; i++) mid += freqData[i];
+        for (var i = midEnd; i < trebleEnd; i++) treble += freqData[i];
+        bass /= (bassEnd * 255);
+        mid /= ((midEnd - bassEnd) * 255);
+        treble /= ((trebleEnd - midEnd) * 255);
+        var energy = bass * 0.5 + mid * 0.35 + treble * 0.15;
+        return { bass: bass, mid: mid, treble: treble, energy: energy };
+      }
+
+      // Smoothed values
+      var sBass = 0, sMid = 0, sTreble = 0, sEnergy = 0;
+      function lerp(a, b, t) { return a + (b - a) * t; }
+
+      // ── Animate ──
+      var clock = new THREE.Clock();
+      function animate() {
+        requestAnimationFrame(animate);
+        var t = clock.getElapsedTime();
+        var bands = getAudioBands();
+
+        sBass = lerp(sBass, bands.bass, 0.18);
+        sMid = lerp(sMid, bands.mid, 0.15);
+        sTreble = lerp(sTreble, bands.treble, 0.12);
+        sEnergy = lerp(sEnergy, bands.energy, 0.14);
+
+        mat.uniforms.uTime.value = t;
+        mat.uniforms.uBass.value = sBass;
+        mat.uniforms.uMid.value = sMid;
+        mat.uniforms.uTreble.value = sTreble;
+        mat.uniforms.uEnergy.value = sEnergy;
+
+        sphere.rotation.y = t * 0.08 + sEnergy * 0.3;
+        sphere.rotation.x = Math.sin(t * 0.05) * 0.2;
+        wireframe.rotation.copy(sphere.rotation);
+
+        camera.position.z = 3.2 - sEnergy * 0.4;
+
+        var bg = sEnergy * 0.04;
+        renderer.setClearColor(new THREE.Color(bg * 0.3, bg * 0.1, bg * 0.5), 1);
+
+        renderer.render(scene, camera);
+      }
+
+      // ── Resize ──
+      window.addEventListener('resize', function() {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+
+      // ── UI toggle ──
+      var uiVisible = true;
+      document.getElementById('toggleUI').addEventListener('click', function() {
+        uiVisible = !uiVisible;
+        document.getElementById('overlay').classList.toggle('hidden', !uiVisible);
+        document.getElementById('bottomBar').classList.toggle('hidden', !uiVisible);
+        document.getElementById('toggleUI').textContent = uiVisible ? 'Hide UI' : 'Show UI';
+      });
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key === ' ') { e.preventDefault(); document.getElementById('toggleUI').click(); }
+        if (e.key === 'Enter') { e.preventDefault(); audio.paused ? audio.play().catch(function(){}) : audio.pause(); }
+      });
+
+      // ── Start ──
+      audio.addEventListener('canplay', function() {
+        document.getElementById('loadingScreen').classList.add('fade-out');
+        audio.play().catch(function() {
+          document.getElementById('loaderText').textContent = 'Click anywhere to start';
+          document.getElementById('loadingScreen').classList.remove('fade-out');
+          document.addEventListener('click', function once() {
+            audio.play().catch(function(){});
+            document.getElementById('loadingScreen').classList.add('fade-out');
+            document.removeEventListener('click', once);
+          });
         });
-      }
+      }, { once: true });
 
-      // Apply a preset by index
-      function loadPresetByIndex(index) {
-        if (index < 0 || index >= presets.length) return;
-        currentPresetIndex = index;
-        const preset = presets[index];
-
-        // Apply all visual options
-        Object.keys(preset.options).forEach(key => {
-          audioMotion[key] = preset.options[key];
-        });
-
-        document.getElementById('presetSelect').value = index;
-      }
-
-      function loadNextPreset() {
-        loadPresetByIndex((currentPresetIndex + 1) % presets.length);
-      }
-
-      function loadPrevPreset() {
-        loadPresetByIndex((currentPresetIndex - 1 + presets.length) % presets.length);
-      }
-      
-      function loadRandomPreset() {
-        loadPresetByIndex(Math.floor(Math.random() * presets.length));
-      }
-
-      // Update status message
-      function updateStatus(message, type = '') {
-        status.textContent = message;
-        status.className = 'status ' + type;
-      }
-
-      // Initialize visualizer and load audio
-      if (audioUrlParam) {
-        updateStatus('Initializing visualizer...', '');
-
-        try {
-          // Create audioMotion-analyzer instance
-          audioMotion = new AudioMotionAnalyzer(container, {
-            source: audio,
-            mode: 3,
-            radial: false,
-            spinSpeed: 0,
-            gradient: 'steelblue',
-            showPeaks: true,
-            showScaleX: false,
-            showScaleY: false,
-            showBgColor: true,
-            overlay: false,
-            bgAlpha: 0.9,
-            smoothing: 0.8,
-            roundBars: true,
-            barSpace: 0.2,
-            fftSize: 8192,
-            maxDecibels: -25,
-            minDecibels: -85,
-            connectSpeakers: true,
-          });
-
-          // Register custom elegant gradients
-          audioMotion.registerGradient('elegant', {
-            bgColor: '#000',
-            colorStops: [
-              '#2c3e50',
-              '#3498db',
-              '#2c3e50',
-            ]
-          });
-
-          // Populate presets UI
-          populatePresetDropdown();
-          loadPresetByIndex(0);
-
-          updateStatus('Visualizer ready', 'success');
-
-          // Set audio source
-          audio.src = audioUrlParam;
-          audio.crossOrigin = "anonymous";
-
-          // Show audio controls
-          audioControls.classList.add('visible');
-          showHideBtn.style.display = 'block';
-
-          // Handle successful audio load
-          audio.addEventListener('canplay', () => {
-            updateStatus('Ready to play!', 'success');
-            audio.play().catch(() => {
-              updateStatus('Click play to start (autoplay blocked)', '');
-            });
-          }, { once: true });
-
-          // Handle audio load errors
-          audio.addEventListener('error', () => {
-            let errorMsg = 'Failed to load audio. ';
-            if (audio.error) {
-              switch (audio.error.code) {
-                case 1: errorMsg += 'Loading was aborted.'; break;
-                case 2: errorMsg += 'Network error.'; break;
-                case 3: errorMsg += 'Format not supported.'; break;
-                case 4: errorMsg += 'File not found.'; break;
-                default: errorMsg += 'Unknown error.';
-              }
-            }
-            updateStatus(errorMsg, 'error');
-          }, { once: true });
-
-          // Audio state events
-          audio.addEventListener('play', () => {
-            if (audioMotion.audioCtx.state === 'suspended') {
-              audioMotion.audioCtx.resume();
-            }
-            updateStatus('Playing', '');
-            pageDimmer.classList.add('active');
-          });
-
-          audio.addEventListener('pause', () => {
-            updateStatus('Paused', '');
-            pageDimmer.classList.remove('active');
-          });
-
-          audio.addEventListener('ended', () => {
-            updateStatus('Playback finished', '');
-            pageDimmer.classList.remove('active');
-          });
-
-        } catch (error) {
-          console.error('Error initializing visualizer:', error);
-          updateStatus('Failed: ' + error.message, 'error');
-        }
-      } else {
-        updateStatus('No audio URL provided', 'error');
-      }
-
-      // Event listeners
-      document.getElementById('presetSelect').addEventListener('change', (e) => {
-        loadPresetByIndex(parseInt(e.target.value));
+      audio.addEventListener('error', function() {
+        document.getElementById('loaderText').textContent = 'Failed to load audio.';
+        document.getElementById('loaderText').style.color = '#ff6b6b';
       });
 
-      document.getElementById('nextPresetBtn').addEventListener('click', loadNextPreset);
-      document.getElementById('prevPresetBtn').addEventListener('click', loadPrevPreset);
-
-
-      // Show/hide controls button
-      showHideBtn.addEventListener('click', () => {
-        controls.classList.toggle('minimized');
-        const isMinimized = controls.classList.contains('minimized');
-        showHideBtn.textContent = isMinimized ? 'Show Controls' : 'Hide Controls';
-      });
-
-      // Keyboard navigation
-      document.addEventListener('keydown', (e) => {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-        if (e.key === 'ArrowLeft') {
-          e.preventDefault();
-          loadPrevPreset();
-        } else if (e.key === 'ArrowRight') {
-          e.preventDefault();
-          loadNextPreset();
-        } else if (e.key === ' ') {
-          e.preventDefault();
-          controls.classList.toggle('minimized');
-          const isMinimized = controls.classList.contains('minimized');
-          showHideBtn.textContent = isMinimized ? 'Show Controls' : 'Hide Controls';
-        } else if (e.key === 'Enter') {
-          e.preventDefault();
-          if (audio) {
-            if (audio.paused) {
-              audio.play().catch(() => {});
-            } else {
-              audio.pause();
-            }
-          }
-        }
-      });
-
-      // Auto-change preset every 30 seconds
-      setInterval(() => {
-        if (document.getElementById('autoChangeCheckbox').checked && !audio.paused) {
-          loadRandomPreset();
-        }
-      }, 30000);
-
-      }); // End window.load
+      animate();
+    })();
     </script>
   </body>
 </html>

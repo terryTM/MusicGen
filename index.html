@@ -7,6 +7,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.3.0/simplex-noise.min.js"></script>
     <style>
       :root { 
         --accent: #1db954; 
@@ -96,18 +98,6 @@
           transform: translateY(-10px) rotate(2deg); 
           opacity: 0.8; 
         }
-      }
-        background: linear-gradient(135deg, #f8fafc, #e2e8f0);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        margin-bottom: 12px;
-        letter-spacing: -0.025em;
-        line-height: 1.1;
-        position: relative;
-        display: inline-block;
-        text-align: center;
-        width: 100%;
       }
       
       /* Music note animation */
@@ -327,11 +317,6 @@
         .card:not(.card-input) {
           max-width: 100%;
         }
-      }
-        max-width: 700px;
-        margin: 0 auto 24px auto;
-        padding: 32px;
-        font-size: 1.1rem;
       }
       
       .card-input label {
@@ -554,49 +539,27 @@
       }
       .visualize-btn {
         padding: 6px 14px;
-        border: 1px solid #2c3e50;
+        border: 1px solid rgba(139, 92, 246, 0.5);
         border-radius: 500px;
-        background: linear-gradient(135deg, #2c3e50, #34495e);
+        background: linear-gradient(135deg, #7c3aed, #6d28d9);
         color: white;
         cursor: pointer;
         font-size: 13px;
+        font-family: inherit;
         transition: all 0.2s;
         text-decoration: none;
         display: inline-block;
         margin-left: 8px;
-        box-shadow: 0 2px 8px rgba(44, 62, 80, 0.3);
+        box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
+        line-height: 1.4;
       }
       .visualize-btn:hover { 
-        background: linear-gradient(135deg, #34495e, #3e5267);
+        background: linear-gradient(135deg, #8b5cf6, #7c3aed);
         transform: translateY(-1px);
-        box-shadow: 0 3px 12px rgba(44, 62, 80, 0.4);
+        box-shadow: 0 3px 12px rgba(124, 58, 237, 0.5);
       }
 
-      .trippify-btn {
-        padding: 6px 14px;
-        border: 1px solid #ff6b6b;
-        border-radius: 500px;
-        background: linear-gradient(135deg, #ff6b6b, #ff5252, #e91e63);
-        color: white;
-        cursor: pointer;
-        font-size: 13px;
-        transition: all 0.2s;
-        text-decoration: none;
-        display: inline-block;
-        margin-left: 8px;
-        box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
-        animation: trippy-glow 3s ease-in-out infinite;
-      }
-      .trippify-btn:hover { 
-        background: linear-gradient(135deg, #ff5252, #e91e63, #9c27b0);
-        transform: translateY(-1px);
-        box-shadow: 0 3px 12px rgba(255, 107, 107, 0.5);
-      }
 
-      @keyframes trippy-glow {
-        0%, 100% { box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3); }
-        50% { box-shadow: 0 2px 15px rgba(233, 30, 99, 0.6); }
-      }
       .audio-visualizer {
         width: 80px;
         height: 30px;
@@ -678,20 +641,7 @@
         display: inline-block;
       }
 
-      .trippify-btn {
-        padding: 6px 14px;
-        border: 1px solid #0066ff;
-        border-radius: 500px;
-        background: #0066ff;
-        color: white;
-        cursor: pointer;
-        font-size: 13px;
-        transition: all 0.2s;
-        text-decoration: none;
-        display: inline-block;
-        margin-left: 8px;
-      }
-      .trippify-btn:hover { background: #0052cc; }
+
 
       .btn-generate {
         padding: 10px 24px;
@@ -760,6 +710,216 @@
         font-size: 1rem;
         letter-spacing: -0.01em;
       }
+
+      /* ── Fullscreen visualizer overlay ── */
+      #vizOverlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: #000;
+        display: none;
+        flex-direction: column;
+      }
+      #vizOverlay.active { display: flex; }
+      #vizOverlay canvas { display: block; width: 100%; height: 100%; }
+      .viz-top-bar {
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        z-index: 10;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: 20px 24px;
+        pointer-events: none;
+      }
+      .viz-song-info {
+        pointer-events: auto;
+        background: rgba(0,0,0,0.5);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.08);
+        padding: 12px 20px;
+        border-radius: 12px;
+      }
+      .viz-song-name { font-size: 15px; font-weight: 600; }
+      .viz-song-artist { font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 2px; }
+      .viz-close-btn {
+        pointer-events: auto;
+        padding: 8px 16px;
+        background: rgba(255,255,255,0.1);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.15);
+        border-radius: 8px;
+        color: #fff;
+        cursor: pointer;
+        font-size: 13px;
+        font-family: inherit;
+        transition: all 0.2s;
+      }
+      .viz-close-btn:hover { background: rgba(255,255,255,0.2); }
+      .viz-bottom-bar {
+        position: absolute;
+        bottom: 0; left: 0; right: 0;
+        z-index: 10;
+        padding: 20px 24px 28px;
+        display: flex;
+        justify-content: center;
+        pointer-events: none;
+      }
+      .viz-player {
+        pointer-events: auto;
+        background: rgba(10,10,20,0.65);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255,255,255,0.1);
+        padding: 16px 24px;
+        border-radius: 18px;
+        width: 100%;
+        max-width: 560px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .viz-player-row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .viz-play-btn {
+        width: 44px; height: 44px;
+        border-radius: 50%;
+        border: none;
+        background: linear-gradient(135deg, #a78bfa, #6d28d9);
+        color: #fff;
+        font-size: 18px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition: transform 0.15s, box-shadow 0.2s;
+        box-shadow: 0 0 16px rgba(167,139,250,0.3);
+      }
+      .viz-play-btn:hover { transform: scale(1.1); box-shadow: 0 0 24px rgba(167,139,250,0.5); }
+      .viz-play-btn:active { transform: scale(0.95); }
+      .viz-progress-wrap {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .viz-progress-bar {
+        width: 100%;
+        height: 6px;
+        border-radius: 3px;
+        background: rgba(255,255,255,0.12);
+        cursor: pointer;
+        position: relative;
+        overflow: hidden;
+      }
+      .viz-progress-fill {
+        height: 100%;
+        border-radius: 3px;
+        background: linear-gradient(90deg, #a78bfa, #c084fc, #e879f9);
+        width: 0%;
+        transition: width 0.1s linear;
+      }
+      .viz-time-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: rgba(255,255,255,0.45);
+        font-variant-numeric: tabular-nums;
+      }
+      .viz-vol-wrap {
+        flex-shrink: 0;
+        position: relative;
+        display: flex;
+        align-items: center;
+      }
+      .viz-vol-icon {
+        font-size: 18px;
+        color: rgba(255,255,255,0.65);
+        cursor: pointer;
+        transition: color 0.2s;
+        padding: 6px;
+        z-index: 2;
+      }
+      .viz-vol-icon:hover { color: #c084fc; }
+      .viz-vol-popup {
+        position: absolute;
+        bottom: calc(100% + 0px);
+        left: 50%;
+        transform: translateX(-50%) scaleY(0);
+        transform-origin: bottom center;
+        opacity: 0;
+        transition: transform 0.25s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease;
+        background: rgba(10,10,20,0.75);
+        backdrop-filter: blur(14px);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 14px;
+        padding: 16px 10px 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        pointer-events: none;
+      }
+      /* Invisible bridge between icon and popup to prevent hover gap */
+      .viz-vol-popup::after {
+        content: '';
+        position: absolute;
+        bottom: -16px;
+        left: 0;
+        right: 0;
+        height: 16px;
+      }
+      .viz-vol-wrap:hover .viz-vol-popup,
+      .viz-vol-wrap.vol-active .viz-vol-popup {
+        transform: translateX(-50%) scaleY(1);
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .viz-vol-pct {
+        font-size: 10px;
+        color: rgba(255,255,255,0.5);
+        font-variant-numeric: tabular-nums;
+      }
+      .viz-vol-slider {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 4px;
+        height: 90px;
+        border-radius: 2px;
+        background: rgba(255,255,255,0.15);
+        outline: none;
+        writing-mode: vertical-lr;
+        direction: rtl;
+      }
+      .viz-vol-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 16px; height: 16px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #c084fc, #a78bfa);
+        cursor: pointer;
+        box-shadow: 0 0 10px rgba(192,132,252,0.6);
+      }
+      .viz-vol-slider::-webkit-slider-thumb:hover {
+        box-shadow: 0 0 16px rgba(192,132,252,0.9);
+      }
+      .viz-vol-slider::-moz-range-thumb {
+        width: 16px; height: 16px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #c084fc, #a78bfa);
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 0 10px rgba(192,132,252,0.6);
+      }
+      .viz-vol-slider::-moz-range-track {
+        width: 4px;
+        background: rgba(255,255,255,0.15);
+        border: none;
+        border-radius: 2px;
+      }
+      #vizAudio { display: none; }
     </style>
   </head>
 
@@ -786,7 +946,6 @@
       <input id="playlistLink" type="text" placeholder="https://music.youtube.com/playlist?list=..." />
       <div style="margin-top:16px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;align-items:center;">
         <button id="fetchBtn" class="btn-primary">🔍 Load Playlist</button>
-        <button id="analyzeBtn" class="btn-analyze" disabled>🧠 Analyze All Tracks</button>
         <button id="generateBtn" class="btn-generate" disabled>🎶 Generate Song</button>
         <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text-light);cursor:pointer;user-select:none;">
           <input type="checkbox" id="vocalsCheckbox" style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer;"> Include vocals
@@ -929,36 +1088,17 @@
           ? `<button class="play-btn" data-preview="${previewUrl}" data-idx="${i}">&#9654; Play 30s</button>`
           : `<small style="color:#999">No preview</small>`;
         const visualizeBtn = previewUrl
-          ? `<a class="visualize-btn" href="/visualize_song?url=${encodeURIComponent(previewUrl)}&name=${encodeURIComponent(t.name)}&artist=${encodeURIComponent(t.artist || t.artists)}" target="_blank">✨ Visualize</a>`
-          : '';
-        const trippifyBtn = previewUrl
-          ? `<a class="trippify-btn" href="/trippify_song?url=${encodeURIComponent(previewUrl)}&name=${encodeURIComponent(t.name)}&artist=${encodeURIComponent(t.artist || t.artists)}" target="_blank">🌀 Trippify</a>`
+          ? `<button class="visualize-btn" data-viz-url="${previewUrl}" data-viz-name="${(t.name||'').replace(/"/g, '&quot;')}" data-viz-artist="${((t.artist||t.artists||'')).replace(/"/g, '&quot;')}">🔮 Visualize</button>`
           : '';
 
-        // Track thumbnail
-        const thumbnailHTML = t.thumbnail 
-          ? `<img src="${t.thumbnail}" alt="${t.name}" class="track-thumbnail" loading="lazy">`
+        // Track thumbnail: prefer YouTube thumbnail, fall back to Deezer album cover
+        const thumbSrc = t.thumbnail || t.deezer?.cover || null;
+        const thumbnailHTML = thumbSrc
+          ? `<img src="${thumbSrc}" alt="${t.name}" class="track-thumbnail" loading="lazy">`
           : `<div class="track-thumbnail-placeholder">🎵</div>`;
 
         let analysisHTML = '';
-        if (t.description) {
-          analysisHTML += `<div class="description-box">${t.description}</div>`;
-        }
-
-        // Tags
-        if (t.tags) {
-          let tagHTML = '';
-          for (const g of (t.tags.genre || [])) tagHTML += renderTag(g.label, g.prob, 'genre');
-          for (const g of (t.tags.instrument || [])) tagHTML += renderTag(g.label, g.prob, 'instrument');
-          for (const g of (t.tags.vocal || [])) tagHTML += renderTag(g.label, g.prob, 'vocal');
-          if (tagHTML) analysisHTML += `<div class="tags">${tagHTML}</div>`;
-        }
-
-        // Collapsible raw features
-        if (t.audio_features) {
-          analysisHTML += `<span class="features-toggle" data-idx="${i}">▸ Raw audio features</span>`;
-          analysisHTML += `<div class="features-detail" id="feats-${i}">${JSON.stringify(t.audio_features, null, 2)}</div>`;
-        }
+        // Descriptions, tags, and raw features are kept internally but hidden from the UI
 
         return `
           <div class="track-row" data-row="${i}">
@@ -973,7 +1113,6 @@
               <canvas class="audio-visualizer" data-idx="${i}" width="80" height="30"></canvas>
               ${playBtn}
               ${visualizeBtn}
-              ${trippifyBtn}
             </div>
             ${analysisHTML ? `<div class="track-analysis">${analysisHTML}</div>` : ''}
           </div>`;
@@ -993,6 +1132,11 @@
             else { clearActiveTrack(); playPreview(url, btn, idx); }
           };
         });
+        document.querySelectorAll('.visualize-btn').forEach(btn => {
+          if (btn.dataset.vizUrl) {
+            btn.onclick = () => window.openVisualizer(btn.dataset.vizUrl, btn.dataset.vizName || '', btn.dataset.vizArtist || '');
+          }
+        });
         document.querySelectorAll('.features-toggle').forEach(tog => {
           tog.onclick = () => {
             const el = $('feats-' + tog.dataset.idx);
@@ -1011,7 +1155,12 @@
         try {
           setStatus("⏳ Fetching playlist & matching Deezer previews…");
           setProgress(null);
-          $("analyzeBtn").disabled = true;
+          $("generateBtn").disabled = true;
+          cachedPlaylistSummary = null;  // reset cache for new playlist
+
+          // Remove any previous generated song card
+          const prevCard = document.querySelector('.generated-song-card');
+          if (prevCard) prevCard.remove();
 
           const resp = await fetch(`/api/playlist/${playlistId}/deezer-previews`);
           if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || resp.status);
@@ -1045,6 +1194,7 @@
             name: t.name,
             artist: t.artists,
             duration: t.duration,
+            thumbnail: t.thumbnail,
             deezer: t.deezer,
             audio_features: null,
             tags: null,
@@ -1052,94 +1202,76 @@
           }));
 
           renderAllTracks();
-          $("analyzeBtn").disabled = false;
-          setStatus(`✅ Loaded ${tracksData.length} tracks. Hit <b>Analyze</b> for audio analysis + descriptions.`);
+          $("generateBtn").disabled = false;
+          setStatus(`✅ Loaded ${tracksData.length} tracks. Hit <b>Generate Song</b> to analyze & create music.`);
         } catch (e) {
           setStatus(`❌ ${e.message}`);
         }
       };
 
       // ── Analyze all tracks (calls Flask backend) ──
-      $("analyzeBtn").onclick = async () => {
-        if (!playlistId || tracksData.length === 0) return;
+      async function analyzePlaylist() {
+        if (!playlistId || tracksData.length === 0) return false;
 
-        $("analyzeBtn").disabled = true;
-        setStatus("🧠 Analyzing audio features, tagging, and generating descriptions…", 'status-analyzing');
+        setStatus("🧠 Analyzing audio features and generating style profile…", 'status-analyzing');
         setProgress(10);
 
         try {
           const resp = await fetch(`/api/playlist/${playlistId}/analysis`);
           if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || resp.status);
 
-          setProgress(80);
+          setProgress(40);
           const data = await resp.json();
 
-          // Merge analysis into our store
+          // Merge analysis into our store (keep data internally, hidden from UI)
           tracksData = data.tracks.map(t => ({
             name: t.name,
             artist: t.artist,
             duration: t.duration,
             deezer: t.deezer,
+            thumbnail: t.thumbnail,
             audio_features: t.audio_features,
             tags: t.tags,
             description: t.description,
           }));
 
           renderAllTracks();
-          setProgress(100);
 
-          const analyzed = tracksData.filter(t => t.audio_features).length;
-          let statusMsg = `✅ ${analyzed}/${tracksData.length} tracks analyzed with audio features + descriptions.`;
-          
-          // Cache and display GPT-4 playlist summary
+          // Cache GPT-4 playlist summary for generation (not displayed)
           cachedPlaylistSummary = data.playlist_summary || null;
-          if (data.playlist_summary) {
-            const summaryDiv = document.createElement('div');
-            summaryDiv.className = 'card';
-            summaryDiv.style.marginTop = '20px';
-            summaryDiv.style.background = 'rgba(29, 185, 84, 0.1)';
-            summaryDiv.style.border = '1px solid rgba(29, 185, 84, 0.3)';
-            summaryDiv.innerHTML = `
-              <h3 style="margin-bottom: 12px; color: var(--accent);">🎵 AI Music Generation Prompt</h3>
-              <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px; font-size: 14px; line-height: 1.6;">
-                ${data.playlist_summary}
-              </div>
-              <small style="display: block; margin-top: 10px; opacity: 0.7;">Generated by GPT-4 based on audio analysis</small>
-            `;
-            
-            // Insert after playlistInfo
-            const playlistInfo = $('playlistInfo');
-            if (playlistInfo.nextSibling) {
-              playlistInfo.parentNode.insertBefore(summaryDiv, playlistInfo.nextSibling);
-            } else {
-              playlistInfo.parentNode.appendChild(summaryDiv);
-            }
-          }
-          
-          setStatus(statusMsg, 'status-done');
-          $("generateBtn").disabled = false;
-          setTimeout(() => setProgress(null), 2000);
+          return true;
         } catch (e) {
           setStatus(`❌ Analysis failed: ${e.message}`, 'status-error');
           setProgress(null);
-        } finally {
-          $("analyzeBtn").disabled = false;
+          return false;
         }
-      };
+      }
 
-      // ── Generate song via DiffRhythm (uses cached summary) ──
+      // ── Generate song (analyze first if needed, then call DiffRhythm) ──
       $("generateBtn").onclick = async () => {
-        if (!cachedPlaylistSummary) {
-          setStatus('❌ Run Analyze first to generate a playlist summary.', 'status-error');
-          return;
-        }
+        if (!playlistId || tracksData.length === 0) return;
         const withLyrics = $("vocalsCheckbox").checked;
+
         $("generateBtn").disabled = true;
+        $("generateBtn").textContent = '⏳ Working…';
+
+        // Step 1: Analyze if not cached
+        if (!cachedPlaylistSummary) {
+          setStatus('🧠 Analyzing playlist audio features…', 'status-analyzing');
+          const ok = await analyzePlaylist();
+          if (!ok || !cachedPlaylistSummary) {
+            $("generateBtn").disabled = false;
+            $("generateBtn").textContent = '🎶 Generate Song';
+            return;
+          }
+        }
+
+        // Step 2: Generate with DiffRhythm
         $("generateBtn").textContent = withLyrics ? '🎤 Generating with vocals…' : '🎶 Generating…';
         setStatus(withLyrics
           ? '🎤 Writing lyrics & generating song… This may take 2-4 minutes.'
           : '🎵 Generating instrumental with DiffRhythm… This may take 1-3 minutes.', 'status-analyzing');
-        setProgress(10);
+        setProgress(50);
 
         // Remove any previous generated song card
         const prev = document.querySelector('.generated-song-card');
@@ -1154,7 +1286,7 @@
               options: { duration: 95, steps: 50, file_type: 'mp3', withLyrics }
             })
           });
-          setProgress(80);
+          setProgress(90);
           if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || resp.status);
           const result = await resp.json();
           setProgress(100);
@@ -1163,25 +1295,25 @@
             const lyricsBlock = result.lyrics_used && result.lyrics_used !== '[00:00.00] Instrumental'
               ? `<details style="margin-bottom:12px;"><summary style="cursor:pointer;color:var(--accent);font-size:13px;">🎤 Generated Lyrics</summary><pre style="background:rgba(0,0,0,0.3);padding:12px;border-radius:8px;font-size:12px;line-height:1.6;margin-top:8px;white-space:pre-wrap;color:var(--text);">${result.lyrics_used}</pre></details>`
               : '';
+            const genAudioUrl = result.url;
             const card = document.createElement('div');
             card.className = 'generated-song-card card';
             card.innerHTML = `
               <h3>🎶 Generated Song ${withLyrics ? '(with vocals)' : '(instrumental)'}</h3>
-              <p style="font-size: 14px; opacity: 0.8; margin: 0 0 8px 0;">Based on the audio analysis of your playlist</p>
-              <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; font-size: 13px; line-height: 1.6; margin-bottom: 12px;"><strong>Style prompt:</strong> ${cachedPlaylistSummary}</div>
+              <p style="font-size: 14px; opacity: 0.8; margin: 0 0 12px 0;">Based on the audio analysis of your playlist</p>
               ${lyricsBlock}
-              <audio controls src="${result.url}"></audio>
-              <a href="${result.url}" download style="display:inline-block;margin-top:10px;color:#a78bfa;font-size:13px;">⬇ Download</a>
+              <audio controls src="${genAudioUrl}"></audio>
+              <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <a href="${genAudioUrl}" download style="color:#a78bfa;font-size:13px;">⬇ Download</a>
+                <button class="visualize-btn" data-viz-url="${genAudioUrl}" data-viz-name="Generated Song" data-viz-artist="MusicGen AI">🔮 Visualize</button>
+              </div>
             `;
             const playlistInfo = $('playlistInfo');
-            const existingSummary = playlistInfo.nextElementSibling;
-            if (existingSummary && existingSummary.innerHTML.includes('Music Generation Prompt')) {
-              existingSummary.parentNode.insertBefore(card, existingSummary.nextSibling);
-            } else if (playlistInfo.nextSibling) {
-              playlistInfo.parentNode.insertBefore(card, playlistInfo.nextSibling);
-            } else {
-              playlistInfo.parentNode.appendChild(card);
-            }
+            playlistInfo.parentNode.insertBefore(card, playlistInfo.nextSibling);
+            // Attach visualize handler for the new card
+            card.querySelector('.visualize-btn').onclick = function() {
+              window.openVisualizer(this.dataset.vizUrl, this.dataset.vizName, this.dataset.vizArtist);
+            };
             setStatus('✅ Song generated successfully!', 'status-done');
           } else {
             setStatus('⚠️ Song generated but no audio URL returned.', 'status-error');
@@ -1197,7 +1329,290 @@
       };
 
       $("playlistLink").addEventListener("keypress", e => { if (e.key === "Enter") $("fetchBtn").click(); });
+
+      // ── Inline Visualizer (wireframe sphere + simplex noise + color cycling) ──
+      let vizActive = false;
+      let vizRenderer = null, vizScene = null, vizCamera = null;
+      let vizAnalyser = null, vizAudioCtx = null;
+      let vizDataArray = null;
+      let vizSphere = null, vizOrigPos = null;
+      let vizAudioEl = null;
+      let vizAnimId = null;
+      let vizNoise = null;
+
+      function vizAvg(arr) {
+        var total = 0; for (var i = 0; i < arr.length; i++) total += arr[i];
+        return total / arr.length;
+      }
+      function vizMax(arr) {
+        var m = 0; for (var i = 0; i < arr.length; i++) if (arr[i] > m) m = arr[i];
+        return m;
+      }
+      function vizModulate(val, minV, maxV, outMin, outMax) {
+        var fr = (val - minV) / (maxV - minV);
+        return outMin + fr * (outMax - outMin);
+      }
+
+      var VIZ_RADIUS = 20;
+
+      function vizWarpSphere(mesh, normDir, noise, bassFr, treFr) {
+        var pos = mesh.geometry.attributes.position;
+        var time = performance.now();
+        var amp = 5;
+        var rf = 0.00001;
+        for (var i = 0; i < pos.count; i++) {
+          var nx = normDir[i * 3], ny = normDir[i * 3 + 1], nz = normDir[i * 3 + 2];
+          var n = noise.noise3D(
+            nx + time * rf * 4,
+            ny + time * rf * 6,
+            nz + time * rf * 7
+          );
+          var distance = Math.max(1, (VIZ_RADIUS + bassFr) + n * amp * treFr * 2);
+          pos.setXYZ(i, nx * distance, ny * distance, nz * distance);
+        }
+        pos.needsUpdate = true;
+        mesh.geometry.computeVertexNormals();
+      }
+
+      // ── Custom player helpers ──
+      function vizFmtTime(s) {
+        if (!s || !isFinite(s)) return '0:00';
+        var m = Math.floor(s / 60), sec = Math.floor(s % 60);
+        return m + ':' + (sec < 10 ? '0' : '') + sec;
+      }
+      function vizSetupPlayer() {
+        var audio = $('vizAudio');
+        var playBtn = $('vizPlayBtn');
+        var progressBar = $('vizProgressBar');
+        var progressFill = $('vizProgressFill');
+        var timeCur = $('vizTimeCur');
+        var timeDur = $('vizTimeDur');
+        var volSlider = $('vizVolSlider');
+        var volIcon = $('vizVolIcon');
+
+        playBtn.onclick = function() {
+          if (vizAudioCtx && vizAudioCtx.state === 'suspended') vizAudioCtx.resume();
+          if (audio.paused) { audio.play().catch(function(){}); }
+          else { audio.pause(); }
+        };
+        audio.onplay = function() { playBtn.textContent = '⏸'; };
+        audio.onpause = function() { playBtn.textContent = '▶'; };
+        audio.ontimeupdate = function() {
+          timeCur.textContent = vizFmtTime(audio.currentTime);
+          if (audio.duration) {
+            progressFill.style.width = (audio.currentTime / audio.duration * 100) + '%';
+          }
+        };
+        audio.onloadedmetadata = function() {
+          timeDur.textContent = vizFmtTime(audio.duration);
+        };
+        progressBar.onclick = function(e) {
+          if (audio.duration) {
+            var rect = progressBar.getBoundingClientRect();
+            audio.currentTime = ((e.clientX - rect.left) / rect.width) * audio.duration;
+          }
+        };
+        var volPct = $('vizVolPct');
+        volSlider.oninput = function() {
+          audio.volume = parseFloat(volSlider.value);
+          volPct.textContent = Math.round(audio.volume * 100) + '%';
+          volIcon.textContent = audio.volume === 0 ? '🔇' : audio.volume < 0.5 ? '🔉' : '🔊';
+        };
+        volIcon.onclick = function() {
+          if (audio.volume > 0) { audio._prevVol = audio.volume; audio.volume = 0; volSlider.value = 0; volIcon.textContent = '🔇'; }
+          else { audio.volume = audio._prevVol || 1; volSlider.value = audio.volume; volIcon.textContent = '🔊'; }
+          volPct.textContent = Math.round(audio.volume * 100) + '%';
+        };
+      }
+      var vizPlayerReady = false;
+
+      window.openVisualizer = function(audioUrl, name, artist) {
+        if (currentAudio) { currentAudio.pause(); clearActiveTrack(); }
+
+        var overlay = $('vizOverlay');
+        overlay.classList.add('active');
+        vizActive = true;
+        document.body.style.overflow = 'hidden';
+
+        $('vizSongName').textContent = name || 'Unknown Song';
+        $('vizSongArtist').textContent = artist || '';
+
+        vizAudioEl = $('vizAudio');
+        vizAudioEl.src = audioUrl;
+        $('vizPlayBtn').textContent = '▶';
+        $('vizProgressFill').style.width = '0%';
+        $('vizTimeCur').textContent = '0:00';
+        $('vizTimeDur').textContent = '0:00';
+
+        if (!vizPlayerReady) { vizSetupPlayer(); vizPlayerReady = true; }
+
+        // Ensure AudioContext + source
+        if (!vizAudioCtx) {
+          vizAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          vizAnalyser = vizAudioCtx.createAnalyser();
+          vizAnalyser.fftSize = 512;
+          vizDataArray = new Uint8Array(vizAnalyser.frequencyBinCount);
+          var src = vizAudioCtx.createMediaElementSource(vizAudioEl);
+          src.connect(vizAnalyser);
+          vizAnalyser.connect(vizAudioCtx.destination);
+        }
+        if (vizAudioCtx.state === 'suspended') vizAudioCtx.resume();
+
+        var canvas = $('vizCanvas');
+        if (!vizRenderer) {
+          vizNoise = new SimplexNoise();
+
+          vizScene = new THREE.Scene();
+          vizCamera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
+          vizCamera.position.z = 100;
+          vizScene.add(vizCamera);
+
+          vizRenderer = new THREE.WebGLRenderer({ antialias: true, canvas: canvas });
+          vizRenderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+          vizRenderer.setClearColor('#000000');
+
+          var geometry = new THREE.SphereGeometry(VIZ_RADIUS, 256, 128);
+          var material = new THREE.MeshLambertMaterial({ color: new THREE.Color(1,1,1), wireframe: true });
+          vizSphere = new THREE.Mesh(geometry, material);
+
+          var posAttr = geometry.attributes.position;
+          vizOrigPos = new Float32Array(posAttr.count * 3);
+          for (var i = 0; i < posAttr.count; i++) {
+            var x = posAttr.getX(i), y = posAttr.getY(i), z = posAttr.getZ(i);
+            var len = Math.sqrt(x * x + y * y + z * z);
+            if (len < 0.001) len = 0.001;
+            vizOrigPos[i * 3]     = x / len;
+            vizOrigPos[i * 3 + 1] = y / len;
+            vizOrigPos[i * 3 + 2] = z / len;
+          }
+
+          var light = new THREE.DirectionalLight('#ffffff', 3);
+          light.position.set(0, 50, 100);
+          vizScene.add(light);
+          vizScene.add(vizSphere);
+        }
+
+        vizRenderer.setSize(canvas.clientWidth, canvas.clientHeight);
+        vizCamera.aspect = canvas.clientWidth / canvas.clientHeight;
+        vizCamera.updateProjectionMatrix();
+
+        function vizAnimate() {
+          if (!vizActive) return;
+          vizAnimId = requestAnimationFrame(vizAnimate);
+
+          vizAnalyser.getByteFrequencyData(vizDataArray);
+
+          var half = Math.floor(vizDataArray.length / 2);
+          var lowerHalf = vizDataArray.slice(0, half);
+          var upperHalf = vizDataArray.slice(half);
+
+          var lowerMax = vizMax(lowerHalf);
+          var upperAvg = vizAvg(upperHalf);
+          var overallAvg = vizAvg(vizDataArray);
+
+          var lowerMaxFr = lowerMax / lowerHalf.length;
+          var upperAvgFr = upperAvg / upperHalf.length;
+          var overallFr = overallAvg / 255;
+
+          // ── Smooth color transitions with white dips ──
+          var t = performance.now() * 0.0001;
+          // Slow sinusoidal hue drift through pleasing ranges
+          var h1 = (Math.sin(t * 0.7) * 0.5 + 0.5);        // 0-1
+          var h2 = (Math.sin(t * 1.1 + 2.0) * 0.5 + 0.5);
+          var hue = (h1 * 0.6 + h2 * 0.4);                  // blended hue
+          // Bass nudges hue forward gently
+          hue = (hue + overallFr * 0.08) % 1.0;
+          // Saturation dips toward white on strong treble peaks
+          var whiteDip = Math.pow(upperAvgFr, 2.5) * 1.5;   // much gentler curve
+          var sat = Math.max(0.15, 0.65 - whiteDip * 0.35);  // floors at 0.15, not 0
+          var lit = 0.5 + overallFr * 0.15 + whiteDip * 0.15; // subtler brightness bump
+          lit = Math.min(lit, 0.95);
+          vizSphere.material.color.setHSL(hue, sat, lit);
+
+          // ── Original rotation (constant) ──
+          vizSphere.rotation.x += 0.001;
+          vizSphere.rotation.y += 0.003;
+          vizSphere.rotation.z += 0.005;
+
+          vizWarpSphere(
+            vizSphere, vizOrigPos, vizNoise,
+            vizModulate(Math.pow(lowerMaxFr, 0.8), 0, 1, 0, 8),
+            vizModulate(upperAvgFr, 0, 1, 0, 4)
+          );
+
+          // ── Subtle background color pulse ──
+          var bgL = overallFr * 0.04;
+          vizRenderer.setClearColor(new THREE.Color().setHSL(hue, 0.4, bgL));
+          vizRenderer.render(vizScene, vizCamera);
+        }
+        vizAnimate();
+        vizAudioEl.play().catch(function(){});
+      };
+
+      window.closeVisualizer = function() {
+        vizActive = false;
+        if (vizAnimId) cancelAnimationFrame(vizAnimId);
+        if (vizAudioEl) { vizAudioEl.pause(); vizAudioEl.src = ''; }
+        $('vizOverlay').classList.remove('active');
+        document.body.style.overflow = '';
+      };
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && vizActive) window.closeVisualizer();
+        // Space bar toggles play/pause inside visualizer
+        if (e.key === ' ' && vizActive) {
+          e.preventDefault();
+          if (vizAudioEl.paused) vizAudioEl.play().catch(function(){});
+          else vizAudioEl.pause();
+        }
+      });
+
+      window.addEventListener('resize', function() {
+        if (vizActive && vizRenderer) {
+          var c = $('vizCanvas');
+          vizRenderer.setSize(c.clientWidth, c.clientHeight);
+          vizCamera.aspect = c.clientWidth / c.clientHeight;
+          vizCamera.updateProjectionMatrix();
+        }
+      });
     </script>
     </div>
+
+    <!-- Fullscreen visualizer overlay -->
+    <div id="vizOverlay">
+      <canvas id="vizCanvas" style="width:100%;height:100%;"></canvas>
+      <audio id="vizAudio" crossorigin="anonymous" preload="auto"></audio>
+      <div class="viz-top-bar">
+        <div class="viz-song-info">
+          <div class="viz-song-name" id="vizSongName">—</div>
+          <div class="viz-song-artist" id="vizSongArtist">—</div>
+        </div>
+        <button class="viz-close-btn" onclick="window.closeVisualizer()">✕ Close</button>
+      </div>
+      <div class="viz-bottom-bar">
+        <div class="viz-player">
+          <div class="viz-player-row">
+            <button class="viz-play-btn" id="vizPlayBtn">▶</button>
+            <div class="viz-progress-wrap">
+              <div class="viz-progress-bar" id="vizProgressBar">
+                <div class="viz-progress-fill" id="vizProgressFill"></div>
+              </div>
+              <div class="viz-time-row">
+                <span id="vizTimeCur">0:00</span>
+                <span id="vizTimeDur">0:00</span>
+              </div>
+            </div>
+            <div class="viz-vol-wrap" id="vizVolWrap">
+              <div class="viz-vol-popup">
+                <span class="viz-vol-pct" id="vizVolPct">100%</span>
+                <input type="range" class="viz-vol-slider" id="vizVolSlider" min="0" max="1" step="0.01" value="1">
+              </div>
+              <span class="viz-vol-icon" id="vizVolIcon">🔊</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </body>
 </html>

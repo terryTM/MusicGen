@@ -102,22 +102,12 @@ def _run_infer(
         device, max_frames, False, None, None, vae
     )
 
-    # When vocal_flag is True, DiffRhythm's default cfm.sample() swaps
-    # style_prompt with vocal.npy, destroying genre info. We handle it:
-    #   - Keep original text style_prompt (genre/mood)
-    #   - Vocals are driven by LRC tokens (only active in positive pred)
-    #   - For the negative_style_prompt we use a GPT-generated
-    #     genre-contrasting description encoded by MuQ. This gives CFG
-    #     maximum separation for genre steering without touching vocals.
-    #   - If no negative_text_prompt was provided, fall back to zeros
-    #     (neutral CFG on style axis).
-    if vocal_flag:
-        if negative_text_prompt:
-            negative_style_prompt = get_text_style_prompt(muq, negative_text_prompt)
-            print(f"[_run_infer] vocal_flag=True → negative_style_prompt from GPT: {negative_text_prompt!r}")
-        else:
-            negative_style_prompt = torch.zeros_like(negative_style_prompt)
-            print("[_run_infer] vocal_flag=True → zeroed negative_style_prompt (no negative_text_prompt provided)")
+    # The HF demo NEVER sets vocal_flag=True for text prompts.
+    # It always uses vocal.npy as negative_style_prompt (ensures good
+    # instrumentals) and relies on LRC tokens to drive vocals naturally.
+    # We do the same — no overrides. Vocals come from LRC content;
+    # instrumental quality comes from vocal.npy as CFG anti-target.
+    print(f"[_run_infer] style='{text_prompt[:60]}', neg=vocal.npy (default), vocal_flag=False (LRC-driven)")
 
     batch_infer_num = 5 if preference == "quality first" else 1
 
@@ -136,7 +126,7 @@ def _run_infer(
         sway_sampling_coef=sway_sampling_coef,
         start_time=start_time,
         file_type=file_type,
-        vocal_flag=False,  # handled above; don't let cfm.sample() overwrite style_prompt
+        vocal_flag=False,  # always False for text prompts, like the HF demo
         odeint_method=odeint_method,
         pred_frames=pred_frames,
         batch_infer_num=batch_infer_num,

@@ -299,7 +299,7 @@ async function generateLyricsWithGPT(stylePrompt, durationSec = 95) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY not configured — cannot generate lyrics');
 
-  const maxLines = durationSec <= 95 ? 14 : 20;
+  const maxLines = durationSec <= 95 ? 22 : 28;
   const resp = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -309,7 +309,7 @@ async function generateLyricsWithGPT(stylePrompt, durationSec = 95) {
     body: JSON.stringify({
       model: 'gpt-4o',
       temperature: 0.85,
-      max_tokens: 600,
+      max_tokens: 800,
       messages: [
         {
           role: 'system',
@@ -322,7 +322,8 @@ async function generateLyricsWithGPT(stylePrompt, durationSec = 95) {
             '- Do NOT include timestamps, section headers (Verse, Chorus, Bridge), or any formatting.',
             '- Lyrics should match the mood, genre, and energy described in the style prompt.',
             '- Write vivid, poetic, singable English lyrics — avoid generic filler.',
-            '- Include a hook/chorus that repeats once or twice.',
+            '- Structure: intro (2 lines), verse (4 lines), chorus (4 lines), verse (4 lines), chorus (4 lines), outro (4 lines).',
+            '- The chorus lines should repeat exactly both times.',
             '- Output ONLY the raw lyric lines, nothing else — no title, no commentary, no numbering.',
           ].join('\n'),
         },
@@ -371,7 +372,7 @@ function formatLrcTimestamp(totalSeconds) {
   return `[${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(cc).padStart(2, '0')}]`;
 }
 
-function generateLrcFromText(text, durationSec = 95, maxLines = 24) {
+function generateLrcFromText(text, durationSec = 95, maxLines = 30) {
   const clean = String(text || '')
     .replace(/\r/g, '\n')
     .split(/[\n.!?]+/g)
@@ -913,6 +914,7 @@ async function searchDeezerPreview(title, artist) {
           artist: bestResult.artist?.name || artist,
           preview: bestResult.preview || null,
           link: bestResult.link || null,
+          cover: bestResult.album?.cover_medium || bestResult.album?.cover || null,
         };
       }
     } catch (e) {
@@ -943,10 +945,11 @@ app.get('/api/playlist/:id/deezer-previews', async (req, res) => {
           name: title,
           artists: artist,
           duration: t.duration,
+          thumbnail: t.thumbnail,
           deezer: found,
         });
       } catch (e) {
-        out.push({ name: title, artists: artist, duration: t.duration, deezer: null, error: e.message });
+        out.push({ name: title, artists: artist, duration: t.duration, thumbnail: t.thumbnail, deezer: null, error: e.message });
       }
     }
 
