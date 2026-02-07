@@ -1,0 +1,617 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Music Visualizer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: 'Poppins', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        background: #000;
+        color: #fff;
+        overflow: hidden;
+      }
+
+      #visualizer-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        display: block;
+        z-index: 1;
+      }
+
+      .controls {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 100;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 16px;
+        border-radius: 16px;
+        backdrop-filter: blur(8px);
+        min-width: 400px;
+        max-width: min(85vw, 500px);
+        transition: all 0.3s ease;
+      }
+
+      .controls.minimized {
+        transform: translate(-50%, -50%) translateY(-200%);
+      }
+
+      .status {
+        text-align: center;
+        padding: 10px;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.1);
+        font-size: 13px;
+        margin-bottom: 15px;
+      }
+
+      .status.error {
+        background: rgba(255, 59, 48, 0.2);
+        color: #ff6b6b;
+      }
+
+      .status.success {
+        background: rgba(0, 170, 0, 0.2);
+        color: #5dff5d;
+      }
+
+      .audio-controls {
+        display: none;
+        margin-top: 15px;
+        padding: 15px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+      }
+
+      .audio-controls.visible {
+        display: block;
+      }
+
+      audio {
+        width: 100%;
+        margin-bottom: 10px;
+      }
+
+      .show-hide-btn {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 101;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        color: rgba(255, 255, 255, 0.6);
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.2s;
+        opacity: 0.5;
+      }
+
+      .show-hide-btn:hover {
+        background: rgba(0, 0, 0, 0.5);
+        color: rgba(255, 255, 255, 0.9);
+        opacity: 1;
+      }
+
+      .page-dimmer {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.15);
+        z-index: 50;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+      }
+
+      .page-dimmer.active {
+        opacity: 1;
+      }
+      .preset-controls-section {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid #444;
+      }
+
+      .preset-controls-section h3 {
+        margin-bottom: 15px;
+        font-size: 16px;
+        color: #fff;
+        text-align: center;
+      }
+
+      .control-section {
+        margin-bottom: 20px;
+      }
+
+      .control-section label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 13px;
+        color: #aaa;
+        font-weight: bold;
+      }
+
+      select {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #444;
+        border-radius: 6px;
+        background: #222;
+        color: #fff;
+        font-size: 14px;
+        cursor: pointer;
+      }
+
+      select:focus {
+        outline: none;
+        border-color: #0066ff;
+      }
+
+      .preset-controls {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      button {
+        flex: 1;
+        padding: 12px;
+        border: none;
+        border-radius: 6px;
+        font-weight: bold;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      }
+
+      button:active {
+        transform: translateY(0);
+      }
+
+      .preset-controls button {
+        flex: 1;
+        padding: 8px;
+        font-size: 12px;
+      }
+
+      .btn-secondary {
+        background: #555;
+        color: white;
+      }
+
+      .btn-secondary:hover {
+        background: #666;
+      }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap" rel="stylesheet">
+  </head>
+
+  <body>
+    <div id="visualizer-container"></div>
+    <div class="page-dimmer" id="pageDimmer"></div>
+
+    <button class="show-hide-btn" id="showHideBtn" style="display: none;">Hide Controls</button>
+
+    <div class="controls" id="controls">
+      <div class="status" id="status">Loading...</div>
+
+      <div id="songInfo" style="text-align: center; margin-bottom: 15px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
+        <div style="font-size: 16px; font-weight: bold; margin-bottom: 5px;" id="songName">-</div>
+        <div style="font-size: 13px; color: #aaa;" id="songArtist">-</div>
+      </div>
+
+      <div class="audio-controls" id="audioControls">
+        <audio id="audio" controls crossorigin="anonymous"></audio>
+
+        <div class="preset-controls-section">
+          <div class="control-section">
+            <label for="presetSelect">Visual Style:</label>
+            <select id="presetSelect"></select>
+            <div class="preset-controls">
+              <button class="btn-secondary" id="prevPresetBtn" title="Previous Style (← key)">← Prev</button>
+              <button class="btn-secondary" id="nextPresetBtn" title="Next Style (→ key)">Next →</button>
+            </div>
+          </div>
+
+          <div class="control-section">
+            <label>
+              <input type="checkbox" id="autoChangeCheckbox">
+              Auto-change every 30s
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/audiomotion-analyzer@4/dist/audiomotion-analyzer.umd.js"></script>
+    <script>
+      window.addEventListener('load', function() {
+
+      const audio = document.getElementById('audio');
+      const status = document.getElementById('status');
+      const audioControls = document.getElementById('audioControls');
+      const controls = document.getElementById('controls');
+      const showHideBtn = document.getElementById('showHideBtn');
+      const pageDimmer = document.getElementById('pageDimmer');
+      const container = document.getElementById('visualizer-container');
+
+      // Get URL parameters
+      const urlParams = new URLSearchParams(window.location.search);
+      const audioUrlParam = urlParams.get('url');
+      const songName = urlParams.get('name') || 'Unknown Song';
+      const songArtist = urlParams.get('artist') || 'Unknown Artist';
+
+      // Display song info
+      document.getElementById('songName').textContent = songName;
+      document.getElementById('songArtist').textContent = songArtist;
+
+      let audioMotion = null;
+      let currentPresetIndex = 0;
+
+      // Visual presets - classy and elegant
+      const presets = [
+        {
+          name: 'Classic Spectrum',
+          options: {
+            mode: 3,
+            radial: false,
+            spinSpeed: 0,
+            gradient: 'steelblue',
+            showPeaks: true,
+            roundBars: true,
+            barSpace: 0.2,
+            ledBars: false,
+            lumiBars: false,
+            outlineBars: false,
+            mirror: 0,
+            reflexRatio: 0.3,
+            reflexAlpha: 0.2,
+            fillAlpha: 1,
+            lineWidth: 0,
+            channelLayout: 'single',
+          }
+        },
+        {
+          name: 'Elegant Radial',
+          options: {
+            mode: 3,
+            radial: true,
+            spinSpeed: 0.5,
+            gradient: 'prism',
+            showPeaks: true,
+            roundBars: true,
+            barSpace: 0.25,
+            ledBars: false,
+            lumiBars: false,
+            outlineBars: false,
+            mirror: 0,
+            reflexRatio: 0,
+            fillAlpha: 0.8,
+            lineWidth: 0,
+            channelLayout: 'single',
+          }
+        },
+        {
+          name: 'Smooth Lines',
+          options: {
+            mode: 10,
+            radial: false,
+            spinSpeed: 0,
+            gradient: 'classic',
+            showPeaks: false,
+            roundBars: false,
+            barSpace: 0,
+            ledBars: false,
+            lumiBars: false,
+            outlineBars: false,
+            mirror: 0,
+            reflexRatio: 0,
+            fillAlpha: 0.7,
+            lineWidth: 3,
+            channelLayout: 'single',
+          }
+        },
+        {
+          name: 'Sophisticated Bars',
+          options: {
+            mode: 5,
+            radial: false,
+            spinSpeed: 0,
+            gradient: 'rainbow',
+            showPeaks: true,
+            roundBars: true,
+            barSpace: 0.15,
+            ledBars: false,
+            lumiBars: false,
+            outlineBars: false,
+            mirror: 0,
+            reflexRatio: 0.4,
+            reflexAlpha: 0.25,
+            fillAlpha: 1,
+            lineWidth: 0,
+            channelLayout: 'single',
+          }
+        },
+        {
+          name: 'Circular Elegance',
+          options: {
+            mode: 4,
+            radial: true,
+            spinSpeed: 1,
+            gradient: 'classic',
+            showPeaks: false,
+            roundBars: true,
+            barSpace: 0.2,
+            ledBars: false,
+            lumiBars: true,
+            outlineBars: false,
+            mirror: 0,
+            reflexRatio: 0,
+            fillAlpha: 0.9,
+            lineWidth: 0,
+            channelLayout: 'single',
+          }
+        },
+        {
+          name: 'Refined Mirror',
+          options: {
+            mode: 5,
+            radial: false,
+            spinSpeed: 0,
+            gradient: 'steelblue',
+            showPeaks: true,
+            roundBars: true,
+            barSpace: 0.2,
+            ledBars: false,
+            lumiBars: false,
+            outlineBars: false,
+            mirror: 1,
+            reflexRatio: 0,
+            fillAlpha: 1,
+            lineWidth: 0,
+            channelLayout: 'single',
+          }
+        },
+        {
+          name: 'Dual Channel',
+          options: {
+            mode: 3,
+            radial: false,
+            spinSpeed: 0,
+            gradient: 'prism',
+            showPeaks: true,
+            roundBars: true,
+            barSpace: 0.2,
+            ledBars: false,
+            lumiBars: false,
+            outlineBars: false,
+            mirror: 0,
+            reflexRatio: 0.3,
+            reflexAlpha: 0.15,
+            fillAlpha: 1,
+            lineWidth: 0,
+            channelLayout: 'dual-combined',
+          }
+        }
+      ];
+
+      // Populate preset dropdown
+      function populatePresetDropdown() {
+        const presetSelect = document.getElementById('presetSelect');
+        presetSelect.innerHTML = '';
+        presets.forEach((preset, index) => {
+          const option = document.createElement('option');
+          option.value = index;
+          option.textContent = preset.name;
+          presetSelect.appendChild(option);
+        });
+      }
+
+      // Apply a preset by index
+      function loadPresetByIndex(index) {
+        if (index < 0 || index >= presets.length) return;
+        currentPresetIndex = index;
+        const preset = presets[index];
+
+        // Apply all visual options
+        Object.keys(preset.options).forEach(key => {
+          audioMotion[key] = preset.options[key];
+        });
+
+        document.getElementById('presetSelect').value = index;
+      }
+
+      function loadNextPreset() {
+        loadPresetByIndex((currentPresetIndex + 1) % presets.length);
+      }
+
+      function loadPrevPreset() {
+        loadPresetByIndex((currentPresetIndex - 1 + presets.length) % presets.length);
+      }
+      
+      function loadRandomPreset() {
+        loadPresetByIndex(Math.floor(Math.random() * presets.length));
+      }
+
+      // Update status message
+      function updateStatus(message, type = '') {
+        status.textContent = message;
+        status.className = 'status ' + type;
+      }
+
+      // Initialize visualizer and load audio
+      if (audioUrlParam) {
+        updateStatus('Initializing visualizer...', '');
+
+        try {
+          // Create audioMotion-analyzer instance
+          audioMotion = new AudioMotionAnalyzer(container, {
+            source: audio,
+            mode: 3,
+            radial: false,
+            spinSpeed: 0,
+            gradient: 'steelblue',
+            showPeaks: true,
+            showScaleX: false,
+            showScaleY: false,
+            showBgColor: true,
+            overlay: false,
+            bgAlpha: 0.9,
+            smoothing: 0.8,
+            roundBars: true,
+            barSpace: 0.2,
+            fftSize: 8192,
+            maxDecibels: -25,
+            minDecibels: -85,
+            connectSpeakers: true,
+          });
+
+          // Register custom elegant gradients
+          audioMotion.registerGradient('elegant', {
+            bgColor: '#000',
+            colorStops: [
+              '#2c3e50',
+              '#3498db',
+              '#2c3e50',
+            ]
+          });
+
+          // Populate presets UI
+          populatePresetDropdown();
+          loadPresetByIndex(0);
+
+          updateStatus('Visualizer ready', 'success');
+
+          // Set audio source
+          audio.src = audioUrlParam;
+          audio.crossOrigin = "anonymous";
+
+          // Show audio controls
+          audioControls.classList.add('visible');
+          showHideBtn.style.display = 'block';
+
+          // Handle successful audio load
+          audio.addEventListener('canplay', () => {
+            updateStatus('Ready to play!', 'success');
+            audio.play().catch(() => {
+              updateStatus('Click play to start (autoplay blocked)', '');
+            });
+          }, { once: true });
+
+          // Handle audio load errors
+          audio.addEventListener('error', () => {
+            let errorMsg = 'Failed to load audio. ';
+            if (audio.error) {
+              switch (audio.error.code) {
+                case 1: errorMsg += 'Loading was aborted.'; break;
+                case 2: errorMsg += 'Network error.'; break;
+                case 3: errorMsg += 'Format not supported.'; break;
+                case 4: errorMsg += 'File not found.'; break;
+                default: errorMsg += 'Unknown error.';
+              }
+            }
+            updateStatus(errorMsg, 'error');
+          }, { once: true });
+
+          // Audio state events
+          audio.addEventListener('play', () => {
+            if (audioMotion.audioCtx.state === 'suspended') {
+              audioMotion.audioCtx.resume();
+            }
+            updateStatus('Playing', '');
+            pageDimmer.classList.add('active');
+          });
+
+          audio.addEventListener('pause', () => {
+            updateStatus('Paused', '');
+            pageDimmer.classList.remove('active');
+          });
+
+          audio.addEventListener('ended', () => {
+            updateStatus('Playback finished', '');
+            pageDimmer.classList.remove('active');
+          });
+
+        } catch (error) {
+          console.error('Error initializing visualizer:', error);
+          updateStatus('Failed: ' + error.message, 'error');
+        }
+      } else {
+        updateStatus('No audio URL provided', 'error');
+      }
+
+      // Event listeners
+      document.getElementById('presetSelect').addEventListener('change', (e) => {
+        loadPresetByIndex(parseInt(e.target.value));
+      });
+
+      document.getElementById('nextPresetBtn').addEventListener('click', loadNextPreset);
+      document.getElementById('prevPresetBtn').addEventListener('click', loadPrevPreset);
+
+
+      // Show/hide controls button
+      showHideBtn.addEventListener('click', () => {
+        controls.classList.toggle('minimized');
+        const isMinimized = controls.classList.contains('minimized');
+        showHideBtn.textContent = isMinimized ? 'Show Controls' : 'Hide Controls';
+      });
+
+      // Keyboard navigation
+      document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          loadPrevPreset();
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          loadNextPreset();
+        } else if (e.key === ' ') {
+          e.preventDefault();
+          controls.classList.toggle('minimized');
+          const isMinimized = controls.classList.contains('minimized');
+          showHideBtn.textContent = isMinimized ? 'Show Controls' : 'Hide Controls';
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          if (audio) {
+            if (audio.paused) {
+              audio.play().catch(() => {});
+            } else {
+              audio.pause();
+            }
+          }
+        }
+      });
+
+      // Auto-change preset every 30 seconds
+      setInterval(() => {
+        if (document.getElementById('autoChangeCheckbox').checked && !audio.paused) {
+          loadRandomPreset();
+        }
+      }, 30000);
+
+      }); // End window.load
+    </script>
+  </body>
+</html>

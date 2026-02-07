@@ -72,6 +72,11 @@ app.get('/trippify', (req, res) => {
   res.sendFile(__dirname + '/trippify.html');
 });
 
+// Visualize song page route
+app.get('/visualize_song', (req, res) => {
+  res.sendFile(__dirname + '/visualize_song.html');
+});
+
 // Trippify song page route
 app.get('/trippify_song', (req, res) => {
   res.sendFile(__dirname + '/trippify_song.html');
