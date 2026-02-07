@@ -74,14 +74,24 @@ async function getYouTubePlaylist(playlistId) {
   }
 }
 
-// Visualizer page route
-app.get('/visualize', (req, res) => {
-  res.sendFile(__dirname + '/visualize.html');
+// Trippify visualizer page route
+app.get('/trippify', (req, res) => {
+  res.sendFile(__dirname + '/trippify.html');
 });
 
-// Visualizer song page route
+// Visualize song page route
 app.get('/visualize_song', (req, res) => {
   res.sendFile(__dirname + '/visualize_song.html');
+});
+
+// Trippify song page route
+app.get('/trippify_song', (req, res) => {
+  res.sendFile(__dirname + '/trippify_song.html');
+});
+
+// Favicon route to prevent 404 errors
+app.get('/favicon.ico', (req, res) => {
+  res.status(204).send();
 });
 
 // Audio proxy endpoint to bypass CORS
