@@ -1,7 +1,8 @@
 import express from "express";
 import cors from "cors";
 import { fileURLToPath } from "url";
-import { dirname } from "path";
+import { dirname, join } from "path";
+import fs from "fs/promises";
 import dotenv from "dotenv";
 import ytpl from "ytpl";
 import https from "https";
@@ -137,6 +138,90 @@ app.listen(PORT, () => {
   console.log(`🎵 YouTube Music Server running on http://localhost:${PORT}`);
 });
 
+// --- Hugging Face generation endpoint ---
+// POST /api/generate  { prompt: string }
+app.post('/api/generate', async (req, res) => {
+  try {
+    const { prompt, options } = req.body;
+    if (!prompt || typeof prompt !== 'string') return res.status(400).json({ error: 'Missing prompt in request body' });
+
+    const HF_API_KEY = process.env.HF_API_KEY;
+    const HF_MODEL = process.env.HF_MODEL || 'diffrythm/diff-rhythm';
+    if (!HF_API_KEY) return res.status(500).json({ error: 'HF_API_KEY not configured in .env' });
+
+    // Prepare request payload. Many audio models accept { inputs, parameters } or plain inputs.
+    const payload = { inputs: prompt };
+    if (options && typeof options === 'object') payload.parameters = options;
+
+    // Call Hugging Face Inference API (audio output expected)
+    const hfResp = await fetch(`https://api-inference.huggingface.co/models/${HF_MODEL}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${HF_API_KEY}`,
+        'Content-Type': 'application/json',
+        Accept: '*/*',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!hfResp.ok) {
+      const txt = await hfResp.text().catch(() => '');
+      return res.status(502).json({ error: `HF inference failed: ${hfResp.status} ${txt}` });
+    }
+
+    const contentType = hfResp.headers.get('content-type') || '';
+    let audioBuffer = null;
+
+    if (contentType.includes('application/json')) {
+      // Some models return JSON with base64 audio data
+      const json = await hfResp.json();
+      // Try common keys
+      let b64 = null;
+      if (json && typeof json === 'object') {
+        if (json.audio) b64 = json.audio;
+        else if (json.data && Array.isArray(json.data) && json.data[0]) b64 = json.data[0];
+        else if (json.generated_audio) b64 = json.generated_audio;
+        else if (json.sounds && Array.isArray(json.sounds) && json.sounds[0]?.data) b64 = json.sounds[0].data;
+      }
+
+      if (!b64) {
+        return res.status(502).json({ error: 'HF returned JSON but no audio field found', body: json });
+      }
+
+      // b64 may be data:audio/wav;base64,XXXXX
+      const m = String(b64).match(/base64,(.+)$/);
+      const raw = m ? m[1] : b64;
+      audioBuffer = Buffer.from(raw, 'base64');
+    } else if (contentType.startsWith('audio/') || contentType === 'application/octet-stream') {
+      const ab = await hfResp.arrayBuffer();
+      audioBuffer = Buffer.from(ab);
+    } else {
+      // Unknown content-type; try to read as arrayBuffer anyway
+      try {
+        const ab = await hfResp.arrayBuffer();
+        audioBuffer = Buffer.from(ab);
+      } catch (e) {
+        const txt = await hfResp.text().catch(() => '');
+        return res.status(502).json({ error: `HF returned unexpected content-type: ${contentType}`, body: txt });
+      }
+    }
+
+    if (!audioBuffer) return res.status(502).json({ error: 'No audio returned from HF' });
+
+    const genDir = join(dirname(fileURLToPath(import.meta.url)), 'generated');
+    await fs.mkdir(genDir, { recursive: true });
+    const filename = `generated_${Date.now()}.wav`;
+    const filepath = join(genDir, filename);
+    await fs.writeFile(filepath, audioBuffer);
+
+    // Return public URL
+    return res.json({ url: `/generated/${filename}` });
+  } catch (e) {
+    console.error('Generation error:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // --- Deezer preview support ---
 
 // Parse a YouTube video title into { trackName, artists[] }
@@ -149,16 +234,24 @@ function parseYouTubeTitle(rawTitle, channelName) {
   // Remove pipe-separated suffixes like "| EL ÚLTIMO TOUR DEL MUNDO"
   title = title.replace(/\|.*$/, "");
 
-  // Remove common YouTube noise words
-  title = title.replace(/official\s*video|official\s*music\s*video|official\s*audio|music\s*video|lyric\s*video|official|lyrics|audio|video|HD|HQ|4K|visualizer/gi, "");
+  // Remove common YouTube noise words (including K-pop M/V)
+  title = title.replace(/official\s*video|official\s*music\s*video|official\s*audio|music\s*video|lyric\s*video|official|lyrics|audio|video|HD|HQ|4K|visualizer|\bM\/V\b|\bMV\b/gi, "");
 
   // Remove credit tags like "🎥By. Ryan Lynch", "Prod. By ..."
   title = title.replace(/🎥.*$/g, "");
   title = title.replace(/\bprod\.?\s*by\.?\s.*/gi, "");
   title = title.replace(/\bdir\.?\s*by\.?\s.*/gi, "");
 
+  // Extract quoted track name before stripping quotes
+  // Handles K-pop pattern: TWICE "FANCY" M/V → track = FANCY, artist = TWICE
+  let quotedTrack = null;
+  const quoteMatch = title.match(/["""]([^"""]+)["""]/);
+  if (quoteMatch) {
+    quotedTrack = quoteMatch[1].trim();
+  }
+
   // Remove stray quotes
-  title = title.replace(/"/g, "");
+  title = title.replace(/["""]/g, "");
 
   title = title.replace(/\s+/g, " ").trim();
 
@@ -166,14 +259,24 @@ function parseYouTubeTitle(rawTitle, channelName) {
   let trackName = title;
   let parsedArtists = [];
 
-  const dashMatch = title.match(/^(.+?)\s*[-–]\s+(.+)$/);
-  if (dashMatch) {
-    const left = dashMatch[1].trim();   // artist side
-    const right = dashMatch[2].trim();  // track side
+  // If we found a quoted track name (e.g. TWICE "FANCY"), use it directly
+  if (quotedTrack) {
+    trackName = quotedTrack;
+    // Everything outside the quotes is the artist(s) — strip stray dashes/punctuation
+    const artistPart = title.replace(quotedTrack, "").replace(/[-–—]+/g, " ").replace(/\s+/g, " ").trim();
+    if (artistPart) {
+      parsedArtists = artistPart.split(/\s+x\s+|\s*&\s*|\s*,\s*|\s+feat\.?\s+|\s+ft\.?\s+|\s+featuring\s+/i).map(a => a.trim()).filter(Boolean);
+    }
+  } else {
+    const dashMatch = title.match(/^(.+?)\s*[-–]\s+(.+)$/);
+    if (dashMatch) {
+      const left = dashMatch[1].trim();   // artist side
+      const right = dashMatch[2].trim();  // track side
 
-    // Split artists on " x ", " X ", " & ", ", ", "feat.", "ft.", "featuring"
-    parsedArtists = left.split(/\s+x\s+|\s*&\s*|\s*,\s*|\s+feat\.?\s+|\s+ft\.?\s+|\s+featuring\s+/i).map(a => a.trim()).filter(Boolean);
-    trackName = right;
+      // Split artists on " x ", " X ", " & ", ", ", "feat.", "ft.", "featuring"
+      parsedArtists = left.split(/\s+x\s+|\s*&\s*|\s*,\s*|\s+feat\.?\s+|\s+ft\.?\s+|\s+featuring\s+/i).map(a => a.trim()).filter(Boolean);
+      trackName = right;
+    }
   }
 
   // Strip featured artist tags from the track name and capture featured artists
@@ -348,7 +451,8 @@ app.get('/api/playlist/:id/deezer-previews', async (req, res) => {
   }
 });
 
-// ── Audio analysis via Python Flask backend ──────────────────────
+// ── Audio analysis backend (Modal GPU or Flask fallback) ─────────
+const MODAL_URL = process.env.MODAL_URL || null;
 const FLASK_URL = process.env.FLASK_URL || 'http://127.0.0.1:5000';
 
 // Helper: "3:45" → 225000 ms
@@ -361,7 +465,7 @@ function durationToMs(dur) {
   return null;
 }
 
-// Full analysis: YT playlist → Deezer match → audio features + tags + description
+// Full analysis: YT playlist → Deezer match → Modal/Flask analysis + GPT-4 summary
 app.get('/api/playlist/:id/analysis', async (req, res) => {
   try {
     const { id } = req.params;
@@ -370,7 +474,7 @@ app.get('/api/playlist/:id/analysis', async (req, res) => {
     // 1. Fetch YouTube playlist
     const yt = await getYouTubePlaylist(id);
 
-    // 2. Also do Deezer preview matching (for the player) in parallel
+    // 2. Deezer preview matching
     const tracksWithDeezer = [];
     for (const t of yt.tracks) {
       const artist = Array.isArray(t.artists) ? t.artists.join(' ') : t.artists;
@@ -388,10 +492,7 @@ app.get('/api/playlist/:id/analysis', async (req, res) => {
       });
     }
 
-    // 3. Send to Flask for audio analysis (batch)
-    //    Pass the Deezer preview URL we already found so Flask
-    //    can download + analyse it directly (avoids re-searching
-    //    Deezer with the raw noisy YouTube title).
+    // 3. Send to analysis backend (Modal GPU preferred, Flask fallback)
     const batchBody = {
       tracks: tracksWithDeezer.map(t => ({
         name: t.name,
@@ -402,20 +503,27 @@ app.get('/api/playlist/:id/analysis', async (req, res) => {
     };
 
     let analysisResults = [];
+    let playlistSummary = null;
+
+    const backendUrl = MODAL_URL || `${FLASK_URL}/analyze-batch`;
+    const backendName = MODAL_URL ? 'Modal' : 'Flask';
+    console.log(`[analysis] Using ${backendName} backend: ${backendUrl}`);
+
     try {
-      const flaskResp = await fetch(`${FLASK_URL}/analyze-batch`, {
+      const resp = await fetch(backendUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(batchBody),
       });
-      if (flaskResp.ok) {
-        const flaskData = await flaskResp.json();
-        analysisResults = flaskData.results || [];
+      if (resp.ok) {
+        const data = await resp.json();
+        analysisResults = data.results || [];
+        playlistSummary = data.playlist_summary || null;
       } else {
-        console.error('Flask batch failed:', flaskResp.status);
+        console.error(`${backendName} batch failed:`, resp.status);
       }
-    } catch (flaskErr) {
-      console.error('Flask unavailable:', flaskErr.message);
+    } catch (err) {
+      console.error(`${backendName} unavailable:`, err.message);
     }
 
     // 4. Merge Deezer preview info + analysis
@@ -432,6 +540,7 @@ app.get('/api/playlist/:id/analysis', async (req, res) => {
     res.json({
       playlist: { name: yt.name, totalTracks: yt.totalTracks },
       tracks: merged,
+      playlist_summary: playlistSummary,
     });
   } catch (error) {
     console.error('Analysis error:', error);
