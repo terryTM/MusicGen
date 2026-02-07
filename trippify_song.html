@@ -25,6 +25,7 @@
         width: 100vw;
         height: 100vh;
         display: block;
+        z-index: 1;
       }
 
       .controls {
@@ -82,18 +83,44 @@
         margin-bottom: 10px;
       }
 
-      .preset-info {
-        text-align: center;
+      .show-hide-btn {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 101;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        color: rgba(255, 255, 255, 0.6);
+        cursor: pointer;
         font-size: 12px;
-        color: #aaa;
+        transition: all 0.2s;
+        opacity: 0.5;
       }
 
-
-
-      .controls.minimized {
-        transform: translate(-50%, -50%) translateY(-200%);
+      .show-hide-btn:hover {
+        background: rgba(0, 0, 0, 0.5);
+        color: rgba(255, 255, 255, 0.9);
+        opacity: 1;
       }
 
+      .page-dimmer {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.15);
+        z-index: 50;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+      }
+
+      .page-dimmer.active {
+        opacity: 1;
+      }
       .preset-controls-section {
         margin-top: 20px;
         padding-top: 20px;
@@ -179,7 +206,10 @@
   </head>
 
   <body>
-    <canvas id="canvas"></canvas>
+    <div id="visualizer-container"></div>
+    <div class="page-dimmer" id="pageDimmer"></div>
+
+    <button class="show-hide-btn" id="showHideBtn" style="display: none;">Hide Controls</button>
 
     <div class="controls" id="controls">
       <div class="status" id="status">Loading...</div>
@@ -194,11 +224,8 @@
 
         <div class="preset-controls-section">
           <div class="control-section">
-            <label for="presetSelect">Select Preset:</label>
-            <select id="presetSelect">
-              <option value="">Loading presets...</option>
-            </select>
-            
+            <label for="presetSelect">Visual Style:</label>
+            <select id="presetSelect"></select>
             <div class="preset-controls">
               <button class="btn-secondary" id="prevPresetBtn" title="Previous Style (← key)">← Prev</button>
               <button class="btn-secondary" id="nextPresetBtn" title="Next Style (→ key)">Next →</button>
@@ -223,16 +250,9 @@
       const status = document.getElementById('status');
       const audioControls = document.getElementById('audioControls');
       const controls = document.getElementById('controls');
-
-      // Check WebGL 2 support
-      function checkWebGL2Support() {
-        try {
-          const canvas = document.createElement('canvas');
-          return !!(canvas.getContext('webgl2'));
-        } catch (e) {
-          return false;
-        }
-      }
+      const showHideBtn = document.getElementById('showHideBtn');
+      const pageDimmer = document.getElementById('pageDimmer');
+      const container = document.getElementById('visualizer-container');
 
       // Get URL parameters
       const urlParams = new URLSearchParams(window.location.search);
@@ -446,132 +466,8 @@
       function loadPrevPreset() {
         loadPresetByIndex((currentPresetIndex - 1 + presets.length) % presets.length);
       }
-
-      // Handle window resize
-      function handleResize() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-        if (visualizer) {
-          visualizer.setRendererSize(window.innerWidth, window.innerHeight);
-        }
-      }
-
-      // Load audio from URL
-      async function loadAudio() {
-        const url = audioUrl.value.trim();
-        
-        if (!url) {
-          updateStatus('❌ Please enter an MP3 URL', 'error');
-          return;
-        }
-        
-        // Basic URL validation
-        try {
-          new URL(url);
-        } catch (e) {
-          updateStatus('❌ Invalid URL format. Please enter a valid URL', 'error');
-          return;
-        }
-
-        try {
-          updateStatus('⏳ Loading audio from URL...', '');
-          
-          // Initialize visualizer if not already done
-          try {
-            initVisualizer();
-          } catch (vizError) {
-            updateStatus('❌ Failed to start visualizer: ' + vizError.message, 'error');
-            return;
-          }
-
-          // Set audio source
-          const proxyUrl = `/api/proxy-audio?url=${encodeURIComponent(url)}`;
-          audio.src = proxyUrl;
-          audio.crossOrigin = "anonymous";
-
-          // Create audio source node and connect to visualizer
-          if (audioSource) {
-            audioSource.disconnect();
-          }
-          
-          audioSource = audioContext.createMediaElementSource(audio);
-          audioSource.connect(audioContext.destination);
-          
-          // Connect audio to visualizer
-          visualizer.connectAudio(audioSource);
-
-          // Show audio controls
-          audioControls.classList.add('visible');
-
-          // Handle successful audio load
-          audio.addEventListener('canplay', () => {
-            updateStatus('✅ Audio loaded successfully from URL! Press play to start visualization', 'success');
-          }, { once: true });
-
-          // Handle audio load errors
-          audio.addEventListener('error', (e) => {
-            let errorMsg = '❌ Failed to load audio from link. ';
-            if (audio.error) {
-              switch (audio.error.code) {
-                case 1:
-                  errorMsg += 'Loading was aborted.';
-                  break;
-                case 2:
-                  errorMsg += 'Network error - check your internet connection.';
-                  break;
-                case 3:
-                  errorMsg += 'Format not supported or file is corrupted.';
-                  break;
-                case 4:
-                  errorMsg += 'File not found or CORS policy blocked the request.';
-                  break;
-                default:
-                  errorMsg += 'Unknown error occurred.';
-              }
-            } else {
-              errorMsg += 'Could not load the audio file.';
-            }
-            updateStatus(errorMsg, 'error');
-            console.error('Audio error:', audio.error);
-            audioControls.classList.remove('visible');
-          }, { once: true });
-
-          // Start rendering when audio plays
-          audio.addEventListener('play', () => {
-            updateStatus('🎨 Starting visualizer...', '');
-            if (audioContext.state === 'suspended') {
-              audioContext.resume();
-            }
-            startRenderLoop();
-            updateStatus('Playing', '');
-          });
-
-          // Handle pause
-          audio.addEventListener('pause', () => {
-            updateStatus('Paused', '');
-          });
-
-          // Handle audio end
-          audio.addEventListener('ended', () => {
-            updateStatus('Playback finished', '');
-          });
-
-        } catch (error) {
-          console.error('Error loading audio:', error);
-          updateStatus(`❌ Failed to load audio: ${error.message}`, 'error');
-          audioControls.classList.remove('visible');
-        }
-      }
-
-      // Render loop
-      function startRenderLoop() {
-        function render() {
-          if (visualizer && !audio.paused) {
-            visualizer.render();
-          }
-          requestAnimationFrame(render);
-        }
-        render();
+      function loadRandomPreset() {
+        loadPresetByIndex(Math.floor(Math.random() * presets.length));
       }
 
       // Update status message
@@ -689,13 +585,17 @@
       document.getElementById('nextPresetBtn').addEventListener('click', loadNextPreset);
       document.getElementById('prevPresetBtn').addEventListener('click', loadPrevPreset);
 
-      // Keyboard navigation for presets and spacebar controls
+
+      // Show/hide controls button
+      showHideBtn.addEventListener('click', () => {
+        controls.classList.toggle('minimized');
+        const isMinimized = controls.classList.contains('minimized');
+        showHideBtn.textContent = isMinimized ? 'Show Controls' : 'Hide Controls';
+      });
+
+      // Keyboard navigation
       document.addEventListener('keydown', (e) => {
-        // Only handle arrow keys when not typing in inputs
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
-          return;
-        }
-        
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
         if (e.key === 'ArrowLeft') {
           e.preventDefault();
           loadPrevPreset();
