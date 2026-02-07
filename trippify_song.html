@@ -29,17 +29,17 @@
 
       .controls {
         position: fixed;
-        top: 20px;
+        top: 50%;
         left: 50%;
-        transform: translateX(-50%);
+        transform: translate(-50%, -50%);
         z-index: 100;
-        background: rgba(0, 0, 0, 0.8);
-        padding: 20px;
-        border-radius: 12px;
-        backdrop-filter: blur(10px);
-        min-width: 500px;
-        max-width: min(90vw, 600px);
-        transition: transform 0.3s ease;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 16px;
+        border-radius: 16px;
+        backdrop-filter: blur(8px);
+        min-width: 400px;
+        max-width: min(85vw, 500px);
+        transition: all 0.3s ease;
       }
 
       .controls h1 {
@@ -178,53 +178,23 @@
         color: #aaa;
       }
 
-      .minimize-btn {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 101;
-        padding: 10px 15px;
-        background: rgba(0, 0, 0, 0.8);
-        border: 1px solid #444;
-        border-radius: 6px;
-        color: white;
-        cursor: pointer;
-        display: none;
-      }
 
-      .minimize-btn.visible {
-        display: block;
-      }
 
       .controls.minimized {
-        transform: translateX(-50%) translateY(-200%);
+        transform: translate(-50%, -50%) translateY(-200%);
       }
 
-      .side-panel {
-        position: fixed;
-        right: 20px;
-        top: 50%;
-        transform: translateY(-50%);
-        z-index: 100;
-        background: rgba(0, 0, 0, 0.9);
-        padding: 20px;
-        border-radius: 12px;
-        backdrop-filter: blur(10px);
-        min-width: 280px;
-        max-width: 350px;
-        border: 1px solid #333;
-        display: none;
-        max-height: 80vh;
-        overflow-y: auto;
-        transition: transform 0.3s ease;
+      .preset-controls-section {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid #444;
       }
 
-      .side-panel.visible {
-        display: block;
-      }
-
-      .side-panel.hidden {
-        transform: translateY(-50%) translateX(400px);
+      .preset-controls-section h3 {
+        margin-bottom: 15px;
+        font-size: 16px;
+        color: #fff;
+        text-align: center;
       }
 
       .side-panel h3 {
@@ -313,17 +283,8 @@
   <body>
     <canvas id="canvas"></canvas>
 
-    <button class="minimize-btn" id="minimizeBtn">Hide Controls</button>
-
     <div class="controls" id="controls">
-      <h1>🎵 Now Visualizing</h1>
-
       <div class="status" id="status">Loading...</div>
-
-      <div id="songInfo" style="text-align: center; margin-bottom: 15px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
-        <div style="font-size: 16px; font-weight: bold; margin-bottom: 5px;" id="songName">-</div>
-        <div style="font-size: 13px; color: #aaa;" id="songArtist">-</div>
-      </div>
 
       <div id="songInfo" style="text-align: center; margin-bottom: 15px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
         <div style="font-size: 16px; font-weight: bold; margin-bottom: 5px;" id="songName">-</div>
@@ -332,37 +293,31 @@
 
       <div class="audio-controls" id="audioControls">
         <audio id="audio" controls crossorigin="anonymous"></audio>
-        <div class="preset-info" id="presetInfo">Loading presets...</div>
-      </div>
-    </div>
-
-    <div class="side-panel" id="sidePanel">
-      <h3>🎨 Visualization Controls</h3>
-      
-      <div class="control-section">
-        <label for="presetSelect">Select Preset:</label>
-        <select id="presetSelect">
-          <option value="">Loading presets...</option>
-        </select>
         
-        <div class="preset-controls">
-          <button class="btn-secondary" id="prevPresetBtn" title="Previous Preset">← Prev</button>
-          <button class="btn-secondary" id="nextPresetBtn" title="Next Preset">Next →</button>
+        <div class="preset-controls-section">
+          <div class="control-section">
+            <label for="presetSelect">Select Preset:</label>
+            <select id="presetSelect">
+              <option value="">Loading presets...</option>
+            </select>
+            
+            <div class="preset-controls">
+              <button class="btn-secondary" id="prevPresetBtn" title="Previous Preset (← key)">← Prev</button>
+              <button class="btn-secondary" id="nextPresetBtn" title="Next Preset (→ key)">Next →</button>
+            </div>
+          </div>
+
+          <div class="control-section">
+            <label>
+              <input type="checkbox" id="autoChangeCheckbox">
+              Auto-change every 30s
+            </label>
+          </div>
         </div>
       </div>
-
-      <div class="control-section">
-        <label>
-          <input type="checkbox" id="autoChangeCheckbox" checked>
-          Auto-change every 30s
-        </label>
-      </div>
-
-      <div class="info-box" id="presetDetails">
-        <strong>Current Preset:</strong>
-        <div id="currentPresetName">None</div>
-      </div>
     </div>
+
+
 
     <script src="/node_modules/butterchurn/lib/butterchurn.min.js"></script>
     <script src="/node_modules/butterchurn-presets/lib/butterchurnPresets.min.js"></script>
@@ -379,8 +334,6 @@
       const randomPresetBtn = document.getElementById('randomPresetBtn');
       const status = document.getElementById('status');
       const audioControls = document.getElementById('audioControls');
-      const presetInfo = document.getElementById('presetInfo');
-      const minimizeBtn = document.getElementById('minimizeBtn');
       const controls = document.getElementById('controls');
 
       // Check WebGL 2 support
@@ -451,8 +404,8 @@
             // Populate preset dropdown
             populatePresetDropdown();
             
-            // Load a random preset to start
-            loadRandomPreset();
+            // Load the default preset to start
+            loadDefaultPreset();
             
             updateStatus('✓ Visualizer initialized successfully with ' + presetKeys.length + ' presets', 'success');
           }
@@ -484,11 +437,9 @@
         const preset = presets[presetKey];
         
         visualizer.loadPreset(preset, 2.0); // 2.0 second transition
-        presetInfo.textContent = `Preset: ${presetKey}`;
         
         // Update dropdown selection
         document.getElementById('presetSelect').value = index;
-        document.getElementById('currentPresetName').textContent = presetKey;
       }
 
       // Load a random preset
@@ -496,6 +447,20 @@
         if (presetKeys.length === 0) return;
         const randomIndex = Math.floor(Math.random() * presetKeys.length);
         loadPresetByIndex(randomIndex);
+      }
+
+      // Load the default preset (Mandala Chasers)
+      function loadDefaultPreset() {
+        if (presetKeys.length === 0) return;
+        const defaultPresetName = 'Phat+fiShbRaiN+Eo.S_Mandala_Chasers_remix';
+        const defaultIndex = presetKeys.indexOf(defaultPresetName);
+        
+        if (defaultIndex !== -1) {
+          loadPresetByIndex(defaultIndex);
+        } else {
+          // Fallback to random if default not found
+          loadRandomPreset();
+        }
       }
 
       // Load next preset
@@ -563,11 +528,8 @@
           // Connect audio to visualizer
           visualizer.connectAudio(audioSource);
 
-          // Show audio controls and side panel
+          // Show audio controls
           audioControls.classList.add('visible');
-          randomPresetBtn.disabled = false;
-          minimizeBtn.classList.add('visible');
-          document.getElementById('sidePanel').classList.add('visible');
 
           // Handle successful audio load
           audio.addEventListener('canplay', () => {
@@ -600,8 +562,6 @@
             updateStatus(errorMsg, 'error');
             console.error('Audio error:', audio.error);
             audioControls.classList.remove('visible');
-            randomPresetBtn.disabled = true;
-            minimizeBtn.classList.remove('visible');
           }, { once: true });
 
           // Start rendering when audio plays
@@ -611,9 +571,7 @@
               audioContext.resume();
             }
             startRenderLoop();
-            setTimeout(() => {
-              updateStatus('🎵 Visualization running!', 'success');
-            }, 500);
+            updateStatus('Playing', '');
           });
 
           // Handle pause
@@ -630,8 +588,6 @@
           console.error('Error loading audio:', error);
           updateStatus(`❌ Failed to load audio: ${error.message}`, 'error');
           audioControls.classList.remove('visible');
-          randomPresetBtn.disabled = true;
-          minimizeBtn.classList.remove('visible');
         }
       }
 
@@ -671,10 +627,8 @@
           // Connect audio to visualizer
           visualizer.connectAudio(audioSource);
 
-          // Show audio controls and side panel
+          // Show audio controls
           audioControls.classList.add('visible');
-          document.getElementById('sidePanel').classList.add('visible');
-          minimizeBtn.classList.add('visible');
 
           // Handle successful audio load
           audio.addEventListener('canplay', () => {
@@ -715,7 +669,7 @@
               audioContext.resume();
             }
             startRenderLoop();
-            updateStatus('🎵 Visualization running!', 'success');
+            updateStatus('Playing', '');
           });
 
           // Handle pause
@@ -751,13 +705,23 @@
         loadPrevPreset();
       });
 
-      minimizeBtn.addEventListener('click', () => {
-        controls.classList.toggle('minimized');
-        const sidePanel = document.getElementById('sidePanel');
-        sidePanel.classList.toggle('hidden');
+      // Keyboard navigation for presets and spacebar controls
+      document.addEventListener('keydown', (e) => {
+        // Only handle arrow keys when not typing in inputs
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+          return;
+        }
         
-        const isMinimized = controls.classList.contains('minimized');
-        minimizeBtn.textContent = isMinimized ? 'Show Controls' : 'Hide Controls';
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          loadPrevPreset();
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          loadNextPreset();
+        } else if (e.key === ' ') {
+          e.preventDefault();
+          controls.classList.toggle('minimized');
+        }
       });
 
       window.addEventListener('resize', handleResize);

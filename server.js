@@ -67,14 +67,14 @@ async function getYouTubePlaylist(playlistId) {
   }
 }
 
-// Visualizer page route
-app.get('/visualize', (req, res) => {
-  res.sendFile(__dirname + '/visualize.html');
+// Trippify visualizer page route
+app.get('/trippify', (req, res) => {
+  res.sendFile(__dirname + '/trippify.html');
 });
 
-// Visualizer song page route
-app.get('/visualize_song', (req, res) => {
-  res.sendFile(__dirname + '/visualize_song.html');
+// Trippify song page route
+app.get('/trippify_song', (req, res) => {
+  res.sendFile(__dirname + '/trippify_song.html');
 });
 
 // Audio proxy endpoint to bypass CORS
