@@ -2,215 +2,276 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Spotify PKCE Playlist Demo</title>
+    <title>MusicGen – Playlist Analyzer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
-      button { padding: 10px 14px; margin: 6px 6px 6px 0; cursor: pointer; }
-      code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }
-      .row { display: flex; gap: 24px; flex-wrap: wrap; }
-      .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; min-width: 320px; }
-      ul { padding-left: 18px; }
-      small { color: #555; }
-      pre { background: #0b1020; color: #e6e6e6; padding: 12px; border-radius: 12px; overflow: auto; }
-      input { padding: 8px; width: 420px; max-width: 100%; }
+      :root { --accent: #1db954; --bg: #fafafa; --card: #fff; --border: #e0e0e0; }
+      * { box-sizing: border-box; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 24px; background: var(--bg); color: #222; }
+      h1 { margin-top: 0; }
+      button { padding: 10px 14px; margin: 6px 6px 6px 0; cursor: pointer; border: none; border-radius: 500px; font-size: 14px; font-weight: 600; transition: all 0.2s; }
+      code { background: #f0f0f0; padding: 2px 6px; border-radius: 6px; font-size: 0.85em; }
+      .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 18px; }
+      input { padding: 10px 14px; width: 100%; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; }
+      small { color: #666; }
 
-      .play-btn {
-        padding: 6px 14px;
-        border: 1px solid #ccc;
-        border-radius: 500px;
-        background: #f5f5f5;
-        cursor: pointer;
-        font-size: 13px;
-        transition: all 0.2s;
-      }
+      .btn-primary { background: #FF0000; color: white; padding: 12px 24px; }
+      .btn-primary:hover { background: #cc0000; }
+      .btn-analyze { background: var(--accent); color: white; padding: 12px 24px; }
+      .btn-analyze:hover { background: #17a347; }
+      .btn-analyze:disabled { background: #999; cursor: not-allowed; }
+
+      .play-btn { padding: 5px 12px; border: 1px solid #ccc; border-radius: 500px; background: #f5f5f5; font-size: 13px; }
       .play-btn:hover { background: #e0e0e0; }
-      .play-btn.playing {
-        background: #1db954;
-        color: white;
-        border-color: #1db954;
-        animation: pulse 1.5s ease-in-out infinite;
-      }
+      .play-btn.playing { background: var(--accent); color: white; border-color: var(--accent); animation: pulse 1.5s ease-in-out infinite; }
       @keyframes pulse {
         0%, 100% { box-shadow: 0 0 0 0 rgba(29,185,84,0.4); }
         50% { box-shadow: 0 0 0 8px rgba(29,185,84,0); }
       }
-      .track-row { padding: 10px; border-bottom: 1px solid #eee; display: flex; gap: 12px; align-items: center; }
+
+      .track-row { padding: 14px; border-bottom: 1px solid #f0f0f0; display: flex; gap: 14px; align-items: flex-start; transition: background 0.2s; }
+      .track-row:last-child { border-bottom: none; }
       .track-row.active-track { background: #f0faf4; }
+      .track-info { flex: 1; min-width: 0; }
+      .track-controls { width: 140px; text-align: right; flex-shrink: 0; }
+      .track-num { color: #999; min-width: 28px; text-align: right; font-size: 14px; padding-top: 2px; }
+
+      .description-box { margin-top: 10px; padding: 12px; background: #f7f7f7; border-left: 3px solid var(--accent); border-radius: 4px; font-size: 13px; line-height: 1.6; color: #333; }
+      .features-toggle { font-size: 12px; color: var(--accent); cursor: pointer; margin-top: 6px; display: inline-block; }
+      .features-toggle:hover { text-decoration: underline; }
+      .features-detail { display: none; margin-top: 8px; padding: 10px; background: #0b1020; color: #e6e6e6; border-radius: 8px; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; font-family: 'Fira Code', 'Consolas', monospace; }
+      .features-detail.open { display: block; }
+
+      .tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+      .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+      .tag-genre { background: #e8e0ff; color: #5b21b6; }
+      .tag-instrument { background: #dff5e3; color: #166534; }
+      .tag-vocal { background: #fef3c7; color: #92400e; }
+
+      .progress-bar { height: 4px; background: #e0e0e0; border-radius: 2px; margin-top: 10px; overflow: hidden; }
+      .progress-fill { height: 100%; background: var(--accent); transition: width 0.3s; }
+
+      .status-badge { display: inline-block; font-size: 12px; padding: 2px 10px; border-radius: 999px; margin-left: 8px; }
+      .status-analyzing { background: #fff3cd; color: #856404; }
+      .status-done { background: #d4edda; color: #155724; }
+      .status-error { background: #f8d7da; color: #721c24; }
     </style>
   </head>
 
   <body>
-    <h1>🎵 YouTube Music Playlist Viewer</h1>
+    <h1>🎵 MusicGen – Playlist Analyzer</h1>
 
     <div class="card">
-      <label for="playlistLink" style="display: block; margin-bottom: 8px; font-weight: bold;">
+      <label for="playlistLink" style="display:block;margin-bottom:8px;font-weight:bold;">
         Paste a YouTube Music Playlist Link:
       </label>
-      <input 
-        id="playlistLink" 
-        type="text" 
-        placeholder="https://music.youtube.com/playlist?list=..." 
-        style="width: 100%; max-width: none;"
-      />
-      <div style="margin-top: 12px;">
-        <button id="fetchBtn" style="
-          background: #FF0000;
-          color: white;
-          padding: 12px 24px;
-          border: none;
-          border-radius: 500px;
-          font-weight: bold;
-          cursor: pointer;
-          font-size: 14px;
-          transition: background 0.2s;
-        " onmouseover="this.style.background='#cc0000'" onmouseout="this.style.background='#FF0000'">
-          🔍 Load Playlist
-        </button>
+      <input id="playlistLink" type="text" placeholder="https://music.youtube.com/playlist?list=..." />
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button id="fetchBtn" class="btn-primary">🔍 Load Playlist</button>
+        <button id="analyzeBtn" class="btn-analyze" disabled>🧠 Analyze All Tracks</button>
       </div>
-      <div style="margin-top: 12px;">
-        <small id="status" style="color: #666;">Ready to load a playlist</small>
+      <div style="margin-top:10px;">
+        <small id="status">Ready to load a playlist</small>
       </div>
+      <div id="progressContainer" style="display:none;" class="progress-bar"><div id="progressFill" class="progress-fill" style="width:0%"></div></div>
     </div>
 
-    <div class="card" style="margin-top: 18px;">
+    <div class="card">
       <h2>Playlist Info</h2>
-      <div id="playlistInfo"></div>
+      <div id="playlistInfo"><small>No playlist loaded</small></div>
     </div>
 
-    <div class="card" style="margin-top: 18px;">
+    <div class="card">
       <h2>Tracks</h2>
-      <div id="tracksList"></div>
+      <div id="tracksList"><small>Load a playlist to see tracks</small></div>
     </div>
 
     <script type="module">
-      const $ = (id) => document.getElementById(id);
+      const $ = id => document.getElementById(id);
 
       function extractPlaylistId(url) {
-        const match = url.match(/list=([a-zA-Z0-9_-]+)/);
-        return match ? match[1] : null;
+        const m = url.match(/list=([a-zA-Z0-9_-]+)/);
+        return m ? m[1] : null;
       }
 
-      function setStatus(msg) {
-        $("status").textContent = msg;
+      function setStatus(msg, badge) {
+        const el = $("status");
+        el.innerHTML = msg + (badge ? ` <span class="status-badge ${badge}">${badge === 'status-analyzing' ? 'Analyzing…' : badge === 'status-done' ? 'Done' : 'Error'}</span>` : '');
       }
 
+      function setProgress(pct) {
+        $("progressContainer").style.display = pct === null ? 'none' : 'block';
+        if (pct !== null) $("progressFill").style.width = pct + '%';
+      }
+
+      // ── Audio player ────────────────────────
       let currentAudio = null;
 
       function clearActiveTrack() {
-        const prevBtn = document.querySelector('.play-btn.playing');
-        if (prevBtn) {
-          prevBtn.classList.remove('playing');
-          prevBtn.innerHTML = '&#9654; Play 30s';
-        }
+        document.querySelectorAll('.play-btn.playing').forEach(b => { b.classList.remove('playing'); b.innerHTML = '&#9654; Play 30s'; });
         document.querySelectorAll('.track-row.active-track').forEach(r => r.classList.remove('active-track'));
       }
 
-      function playPreview(url, btn) {
+      function playPreview(url, btn, idx) {
         if (!url) return;
-        if (currentAudio) {
-          currentAudio.pause();
-          clearActiveTrack();
-        }
-
+        if (currentAudio) { currentAudio.pause(); clearActiveTrack(); }
         currentAudio = new Audio(url);
         currentAudio.play().catch(() => {});
-        if (btn) btn.classList.add('playing');
-
-        currentAudio.onended = () => {
-          clearActiveTrack();
-        };
+        btn.classList.add('playing');
+        btn.innerHTML = '&#9646;&#9646; Playing';
+        const row = document.querySelector(`.track-row[data-row="${idx}"]`);
+        if (row) row.classList.add('active-track');
+        currentAudio.onended = clearActiveTrack;
       }
 
+      // ── Track data store ────────────────────
+      let playlistId = null;
+      let tracksData = [];  // enriched after analysis
+
+      // ── Render helpers ──────────────────────
+      function renderTag(label, prob, cat) {
+        return `<span class="tag tag-${cat}">${label} ${Math.round(prob * 100)}%</span>`;
+      }
+
+      function renderTrack(t, i) {
+        const previewUrl = t.deezer?.preview ? `/api/preview-proxy?url=${encodeURIComponent(t.deezer.preview)}` : null;
+        const matchInfo = t.deezer ? `Deezer: ${t.deezer.artist} – ${t.deezer.title}` : '';
+        const playBtn = previewUrl
+          ? `<button class="play-btn" data-preview="${previewUrl}" data-idx="${i}">&#9654; Play 30s</button>`
+          : `<small style="color:#999">No preview</small>`;
+
+        let analysisHTML = '';
+        if (t.description) {
+          analysisHTML += `<div class="description-box">${t.description}</div>`;
+        }
+
+        // Tags
+        if (t.tags) {
+          let tagHTML = '';
+          for (const g of (t.tags.genre || [])) tagHTML += renderTag(g.label, g.prob, 'genre');
+          for (const g of (t.tags.instrument || [])) tagHTML += renderTag(g.label, g.prob, 'instrument');
+          for (const g of (t.tags.vocal || [])) tagHTML += renderTag(g.label, g.prob, 'vocal');
+          if (tagHTML) analysisHTML += `<div class="tags">${tagHTML}</div>`;
+        }
+
+        // Collapsible raw features
+        if (t.audio_features) {
+          analysisHTML += `<span class="features-toggle" data-idx="${i}">▸ Raw audio features</span>`;
+          analysisHTML += `<div class="features-detail" id="feats-${i}">${JSON.stringify(t.audio_features, null, 2)}</div>`;
+        }
+
+        return `
+          <div class="track-row" data-row="${i}">
+            <div class="track-num">${i + 1}</div>
+            <div class="track-info">
+              <div><b>${t.name}</b></div>
+              <div><small>${t.artist || t.artists || ''} · ${t.duration || ''}</small></div>
+              ${matchInfo ? `<div><small style="color:var(--accent)">${matchInfo}</small></div>` : ''}
+              ${analysisHTML}
+            </div>
+            <div class="track-controls">${playBtn}</div>
+          </div>`;
+      }
+
+      function renderAllTracks() {
+        $("tracksList").innerHTML = tracksData.map(renderTrack).join('');
+        attachHandlers();
+      }
+
+      function attachHandlers() {
+        document.querySelectorAll('.play-btn').forEach(btn => {
+          btn.onclick = () => {
+            const url = btn.dataset.preview;
+            const idx = btn.dataset.idx;
+            if (btn.classList.contains('playing')) { if (currentAudio) currentAudio.pause(); clearActiveTrack(); }
+            else { clearActiveTrack(); playPreview(url, btn, idx); }
+          };
+        });
+        document.querySelectorAll('.features-toggle').forEach(tog => {
+          tog.onclick = () => {
+            const el = $('feats-' + tog.dataset.idx);
+            if (el) { el.classList.toggle('open'); tog.textContent = el.classList.contains('open') ? '▾ Raw audio features' : '▸ Raw audio features'; }
+          };
+        });
+      }
+
+      // ── Load playlist (Deezer previews only, fast) ──
       $("fetchBtn").onclick = async () => {
         const link = $("playlistLink").value.trim();
-        if (!link) {
-          setStatus("❌ Paste a YouTube Music playlist link");
-          return;
-        }
-
-        const playlistId = extractPlaylistId(link);
-        if (!playlistId) {
-          setStatus("❌ Invalid YouTube Music playlist link");
-          return;
-        }
+        if (!link) { setStatus("❌ Paste a YouTube Music playlist link"); return; }
+        playlistId = extractPlaylistId(link);
+        if (!playlistId) { setStatus("❌ Invalid playlist link"); return; }
 
         try {
-          setStatus("⏳ Looking up previews (this may take a moment)...");
-          const resp = await fetch(`/api/playlist/${playlistId}/deezer-previews`);
-          if (!resp.ok) {
-            const err = await resp.json().catch(() => ({}));
-            throw new Error(err.error || `Error: ${resp.status}`);
-          }
+          setStatus("⏳ Fetching playlist & matching Deezer previews…");
+          setProgress(null);
+          $("analyzeBtn").disabled = true;
 
+          const resp = await fetch(`/api/playlist/${playlistId}/deezer-previews`);
+          if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || resp.status);
           const data = await resp.json();
 
-          // Playlist info
-          $("playlistInfo").innerHTML = `
-            <div><b>${data.playlist.name}</b></div>
-            <div><small>${data.playlist.totalTracks} tracks</small></div>
-          `;
+          $("playlistInfo").innerHTML = `<b>${data.playlist.name}</b> · <small>${data.playlist.totalTracks} tracks</small>`;
 
-          if (!data.tracks || data.tracks.length === 0) {
-            $("tracksList").innerHTML = "<div>No tracks found</div>";
-            setStatus('✅ No tracks');
-            return;
-          }
+          tracksData = data.tracks.map(t => ({
+            name: t.name,
+            artist: t.artists,
+            duration: t.duration,
+            deezer: t.deezer,
+            audio_features: null,
+            tags: null,
+            description: null,
+          }));
 
-          // Build track list with preview buttons
-          const trackHTML = data.tracks.map((t, i) => {
-            const previewUrl = t.deezer?.preview ? `/api/preview-proxy?url=${encodeURIComponent(t.deezer.preview)}` : null;
-            const matchInfo = t.deezer ? `Matched: ${t.deezer.artist} – ${t.deezer.title}` : '';
-            const playBtn = previewUrl
-              ? `<button class="play-btn" data-preview="${previewUrl}" data-idx="${i}">&#9654; Play 30s</button>`
-              : `<small style="color:#999">No preview</small>`;
-            return `
-              <div class="track-row" data-row="${i}">
-                <div style="flex:1">
-                  <div><b>${i+1}. ${t.name}</b></div>
-                  <div><small>${t.artists}</small></div>
-                  ${matchInfo ? `<div><small style="color:#1db954">${matchInfo}</small></div>` : ''}
-                </div>
-                <div style="width:140px; text-align:right">${playBtn}</div>
-              </div>
-            `;
-          }).join('');
-
-          $("tracksList").innerHTML = trackHTML;
-
-          // Attach handlers
-          document.querySelectorAll('.play-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-              const url = btn.getAttribute('data-preview');
-              const idx = btn.getAttribute('data-idx');
-
-              // toggle play/pause
-              if (btn.classList.contains('playing')) {
-                if (currentAudio) currentAudio.pause();
-                clearActiveTrack();
-              } else {
-                clearActiveTrack();
-                playPreview(url, btn);
-                // highlight the row
-                const row = document.querySelector(`.track-row[data-row="${idx}"]`);
-                if (row) row.classList.add('active-track');
-                btn.innerHTML = '&#9646;&#9646; Playing';
-              }
-            });
-          });
-
-          setStatus(`✅ Loaded ${data.tracks.length} tracks (previews attached where available)`);
-        } catch (error) {
-          setStatus(`❌ ${error.message}`);
-          $("playlistInfo").innerHTML = "";
-          $("tracksList").innerHTML = "";
+          renderAllTracks();
+          $("analyzeBtn").disabled = false;
+          setStatus(`✅ Loaded ${tracksData.length} tracks. Hit <b>Analyze</b> for audio analysis + descriptions.`);
+        } catch (e) {
+          setStatus(`❌ ${e.message}`);
         }
       };
 
-      // Allow Enter key to trigger fetch
-      $("playlistLink").addEventListener("keypress", (e) => {
-        if (e.key === "Enter") $("fetchBtn").click();
-      });
+      // ── Analyze all tracks (calls Flask backend) ──
+      $("analyzeBtn").onclick = async () => {
+        if (!playlistId || tracksData.length === 0) return;
+
+        $("analyzeBtn").disabled = true;
+        setStatus("🧠 Analyzing audio features, tagging, and generating descriptions…", 'status-analyzing');
+        setProgress(10);
+
+        try {
+          const resp = await fetch(`/api/playlist/${playlistId}/analysis`);
+          if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || resp.status);
+
+          setProgress(80);
+          const data = await resp.json();
+
+          // Merge analysis into our store
+          tracksData = data.tracks.map(t => ({
+            name: t.name,
+            artist: t.artist,
+            duration: t.duration,
+            deezer: t.deezer,
+            audio_features: t.audio_features,
+            tags: t.tags,
+            description: t.description,
+          }));
+
+          renderAllTracks();
+          setProgress(100);
+
+          const analyzed = tracksData.filter(t => t.audio_features).length;
+          setStatus(`✅ ${analyzed}/${tracksData.length} tracks analyzed with audio features + descriptions.`, 'status-done');
+          setTimeout(() => setProgress(null), 2000);
+        } catch (e) {
+          setStatus(`❌ Analysis failed: ${e.message}`, 'status-error');
+          setProgress(null);
+        } finally {
+          $("analyzeBtn").disabled = false;
+        }
+      };
+
+      $("playlistLink").addEventListener("keypress", e => { if (e.key === "Enter") $("fetchBtn").click(); });
     </script>
   </body>
 </html>

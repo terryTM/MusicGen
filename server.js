@@ -285,6 +285,97 @@ app.get('/api/playlist/:id/deezer-previews', async (req, res) => {
   }
 });
 
+// ── Audio analysis via Python Flask backend ──────────────────────
+const FLASK_URL = process.env.FLASK_URL || 'http://127.0.0.1:5000';
+
+// Helper: "3:45" → 225000 ms
+function durationToMs(dur) {
+  if (!dur) return null;
+  const parts = dur.split(':').map(Number);
+  if (parts.some(isNaN)) return null;
+  if (parts.length === 2) return (parts[0] * 60 + parts[1]) * 1000;
+  if (parts.length === 3) return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
+  return null;
+}
+
+// Full analysis: YT playlist → Deezer match → audio features + tags + description
+app.get('/api/playlist/:id/analysis', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'No playlist ID provided' });
+
+    // 1. Fetch YouTube playlist
+    const yt = await getYouTubePlaylist(id);
+
+    // 2. Also do Deezer preview matching (for the player) in parallel
+    const tracksWithDeezer = [];
+    for (const t of yt.tracks) {
+      const artist = Array.isArray(t.artists) ? t.artists.join(' ') : t.artists;
+      let deezerMatch = null;
+      try {
+        deezerMatch = await searchDeezerPreview(t.name, artist);
+      } catch (_) {}
+      tracksWithDeezer.push({
+        name: t.name,
+        artist,
+        duration: t.duration,
+        duration_ms: durationToMs(t.duration),
+        thumbnail: t.thumbnail,
+        deezer: deezerMatch,
+      });
+    }
+
+    // 3. Send to Flask for audio analysis (batch)
+    //    Pass the Deezer preview URL we already found so Flask
+    //    can download + analyse it directly (avoids re-searching
+    //    Deezer with the raw noisy YouTube title).
+    const batchBody = {
+      tracks: tracksWithDeezer.map(t => ({
+        name: t.name,
+        artist: t.artist,
+        duration_ms: t.duration_ms,
+        preview_url: t.deezer?.preview || null,
+      })),
+    };
+
+    let analysisResults = [];
+    try {
+      const flaskResp = await fetch(`${FLASK_URL}/analyze-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(batchBody),
+      });
+      if (flaskResp.ok) {
+        const flaskData = await flaskResp.json();
+        analysisResults = flaskData.results || [];
+      } else {
+        console.error('Flask batch failed:', flaskResp.status);
+      }
+    } catch (flaskErr) {
+      console.error('Flask unavailable:', flaskErr.message);
+    }
+
+    // 4. Merge Deezer preview info + analysis
+    const merged = tracksWithDeezer.map((t, i) => {
+      const analysis = analysisResults[i] || {};
+      return {
+        ...t,
+        audio_features: analysis.audio_features || null,
+        tags: analysis.tags || null,
+        description: analysis.description || null,
+      };
+    });
+
+    res.json({
+      playlist: { name: yt.name, totalTracks: yt.totalTracks },
+      tracks: merged,
+    });
+  } catch (error) {
+    console.error('Analysis error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Proxy a Deezer preview URL through the server (avoids CORS and direct leaking)
 app.get('/api/preview-proxy', async (req, res) => {
   const { url } = req.query;
