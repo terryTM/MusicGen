@@ -23,7 +23,29 @@
 
       .play-btn { padding: 5px 12px; border: 1px solid #ccc; border-radius: 500px; background: #f5f5f5; font-size: 13px; }
       .play-btn:hover { background: #e0e0e0; }
+<<<<<<< HEAD
       .play-btn.playing { background: var(--accent); color: white; border-color: var(--accent); animation: pulse 1.5s ease-in-out infinite; }
+=======
+      .play-btn.playing {
+        background: #1db954;
+        color: white;
+        border-color: #1db954;
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+      .visualize-btn {
+        padding: 6px 14px;
+        border: 1px solid #0066ff;
+        border-radius: 500px;
+        background: #0066ff;
+        color: white;
+        cursor: pointer;
+        font-size: 13px;
+        transition: all 0.2s;
+        text-decoration: none;
+        display: inline-block;
+      }
+      .visualize-btn:hover { background: #0052cc; }
+>>>>>>> 50b115e (Update visuals (weird))
       @keyframes pulse {
         0%, 100% { box-shadow: 0 0 0 0 rgba(29,185,84,0.4); }
         50% { box-shadow: 0 0 0 8px rgba(29,185,84,0); }
@@ -223,11 +245,67 @@
             description: null,
           }));
 
+<<<<<<< HEAD
           renderAllTracks();
           $("analyzeBtn").disabled = false;
           setStatus(`✅ Loaded ${tracksData.length} tracks. Hit <b>Analyze</b> for audio analysis + descriptions.`);
         } catch (e) {
           setStatus(`❌ ${e.message}`);
+=======
+          // Build track list with preview buttons
+          const trackHTML = data.tracks.map((t, i) => {
+            const previewUrl = t.deezer?.preview ? `/api/preview-proxy?url=${encodeURIComponent(t.deezer.preview)}` : null;
+            const matchInfo = t.deezer ? `Matched: ${t.deezer.artist} – ${t.deezer.title}` : '';
+            const playBtn = previewUrl
+              ? `<button class="play-btn" data-preview="${previewUrl}" data-idx="${i}">&#9654; Play 30s</button>`
+              : `<small style="color:#999">No preview</small>`;
+            const visualizeBtn = previewUrl
+              ? `<a class="visualize-btn" href="/visualize_song?url=${encodeURIComponent(previewUrl)}&name=${encodeURIComponent(t.name)}&artist=${encodeURIComponent(t.artists)}" target="_blank">🎨 Visualize</a>`
+              : '';
+            return `
+              <div class="track-row" data-row="${i}">
+                <div style="flex:1">
+                  <div><b>${i+1}. ${t.name}</b></div>
+                  <div><small>${t.artists}</small></div>
+                  ${matchInfo ? `<div><small style="color:#1db954">${matchInfo}</small></div>` : ''}
+                </div>
+                <div style="width:240px; text-align:right; display:flex; gap:8px; justify-content:flex-end">
+                  ${playBtn}
+                  ${visualizeBtn}
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          $("tracksList").innerHTML = trackHTML;
+
+          // Attach handlers
+          document.querySelectorAll('.play-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const url = btn.getAttribute('data-preview');
+              const idx = btn.getAttribute('data-idx');
+
+              // toggle play/pause
+              if (btn.classList.contains('playing')) {
+                if (currentAudio) currentAudio.pause();
+                clearActiveTrack();
+              } else {
+                clearActiveTrack();
+                playPreview(url, btn);
+                // highlight the row
+                const row = document.querySelector(`.track-row[data-row="${idx}"]`);
+                if (row) row.classList.add('active-track');
+                btn.innerHTML = '&#9646;&#9646; Playing';
+              }
+            });
+          });
+
+          setStatus(`✅ Loaded ${data.tracks.length} tracks (previews attached where available)`);
+        } catch (error) {
+          setStatus(`❌ ${error.message}`);
+          $("playlistInfo").innerHTML = "";
+          $("tracksList").innerHTML = "";
+>>>>>>> 50b115e (Update visuals (weird))
         }
       };
 

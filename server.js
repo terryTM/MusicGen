@@ -72,6 +72,11 @@ app.get('/visualize', (req, res) => {
   res.sendFile(__dirname + '/visualize.html');
 });
 
+// Visualizer song page route
+app.get('/visualize_song', (req, res) => {
+  res.sendFile(__dirname + '/visualize_song.html');
+});
+
 // Audio proxy endpoint to bypass CORS
 app.get('/api/proxy-audio', async (req, res) => {
   const audioUrl = req.query.url;
