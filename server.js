@@ -295,11 +295,29 @@ async function generateNegativeStylePrompt(stylePrompt) {
 }
 
 // ── GPT-4 lyric generation ──────────────────────────────────────────
-async function generateLyricsWithGPT(stylePrompt, durationSec = 95) {
+function clampDuration(seconds, min = 30, max = 240) {
+  const n = Number(seconds);
+  if (!Number.isFinite(n)) return min;
+  return Math.min(max, Math.max(min, n));
+}
+
+function forceAtlantaTrapIfRap(prompt) {
+  const text = String(prompt || "");
+  return /\brap\b/i.test(text) ? "atlanta trap" : text;
+}
+
+function randomDuration(min = 120, max = 240) {
+  const a = Math.max(1, Number(min));
+  const b = Math.max(a, Number(max));
+  return Math.floor(a + Math.random() * (b - a + 1));
+}
+
+async function generateLyricsWithGPT(stylePrompt, durationSec = 240) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY not configured — cannot generate lyrics');
 
-  const maxLines = durationSec <= 95 ? 22 : 28;
+  const dur = clampDuration(durationSec);
+  const maxLines = Math.min(32, Math.max(14, Math.round(dur / 7.5)));
   const resp = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -309,7 +327,7 @@ async function generateLyricsWithGPT(stylePrompt, durationSec = 95) {
     body: JSON.stringify({
       model: 'gpt-4o',
       temperature: 0.85,
-      max_tokens: 800,
+      max_tokens: 600,
       messages: [
         {
           role: 'system',
@@ -322,8 +340,7 @@ async function generateLyricsWithGPT(stylePrompt, durationSec = 95) {
             '- Do NOT include timestamps, section headers (Verse, Chorus, Bridge), or any formatting.',
             '- Lyrics should match the mood, genre, and energy described in the style prompt.',
             '- Write vivid, poetic, singable English lyrics — avoid generic filler.',
-            '- Structure: intro (2 lines), verse (4 lines), chorus (4 lines), verse (4 lines), chorus (4 lines), outro (4 lines).',
-            '- The chorus lines should repeat exactly both times.',
+            '- Include a hook/chorus that repeats once or twice.',
             '- Output ONLY the raw lyric lines, nothing else — no title, no commentary, no numbering.',
           ].join('\n'),
         },
@@ -372,7 +389,7 @@ function formatLrcTimestamp(totalSeconds) {
   return `[${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(cc).padStart(2, '0')}]`;
 }
 
-function generateLrcFromText(text, durationSec = 95, maxLines = 30) {
+function generateLrcFromText(text, durationSec = 240, maxLines = 24) {
   const clean = String(text || '')
     .replace(/\r/g, '\n')
     .split(/[\n.!?]+/g)
@@ -381,7 +398,7 @@ function generateLrcFromText(text, durationSec = 95, maxLines = 30) {
 
   const lines = (clean.length ? clean : ['Instrumental']).slice(0, maxLines);
   const startOffset = 4.0;
-  const endTime = Math.max(startOffset + 5, Math.min(durationSec, 285) - 2);
+  const endTime = Math.max(startOffset + 5, Math.min(clampDuration(durationSec), 240) - 2);
   const step = (endTime - startOffset) / Math.max(lines.length, 1);
 
   return lines
@@ -529,7 +546,9 @@ async function callDiffRhythm(prompt, lrc, options = {}) {
         options.file_type || 'mp3',
         options.odeint_method || 'euler',
         options.preference || 'speed first',
-        Number(options.duration || 95),
+        Number.isFinite(Number(options.duration))
+          ? clampDuration(options.duration)
+          : randomDuration(120, 240),
       ],
     }),
   });
@@ -566,8 +585,11 @@ app.post('/api/diffrhythm', async (req, res) => {
       return res.status(400).json({ error: 'Missing prompt in request body' });
     }
 
+    const promptForLyrics = forceAtlantaTrapIfRap(prompt);
     const opts = options && typeof options === 'object' ? options : {};
-    const duration = Number(opts.duration || 95);
+    const duration = Number.isFinite(Number(opts.duration))
+      ? clampDuration(opts.duration)
+      : randomDuration(120, 240);
     const steps = Number(opts.steps || 50);
     const cfgStrength = Number(opts.cfg_strength || 4.0);
     const seed = Number.isFinite(opts.seed) ? Number(opts.seed) : 0;
@@ -584,13 +606,13 @@ app.post('/api/diffrhythm', async (req, res) => {
     if (lyrics && typeof lyrics === 'string' && lyrics.trim()) {
       lrc = lyrics.trim();
       // Still generate a negative prompt for genre steering
-      negativeStylePrompt = await generateNegativeStylePrompt(prompt);
+      negativeStylePrompt = await generateNegativeStylePrompt(promptForLyrics);
     } else if (withLyrics) {
       console.log('[diffrhythm] Generating lyrics + negative style prompt via GPT…');
       // Run both GPT calls in parallel for speed
       const [generated, negPrompt] = await Promise.all([
-        generateLyricsWithGPT(prompt, duration),
-        generateNegativeStylePrompt(prompt),
+        generateLyricsWithGPT(promptForLyrics, duration),
+        generateNegativeStylePrompt(promptForLyrics),
       ]);
       lrc = generated.lrc;
       plainLyrics = generated.plainLyrics;
@@ -599,7 +621,7 @@ app.post('/api/diffrhythm', async (req, res) => {
       lrc = '[00:00.00] Instrumental';
     }
 
-    const result = await callDiffRhythm(prompt, lrc, {
+    const result = await callDiffRhythm(promptForLyrics, lrc, {
       duration,
       steps,
       cfg_strength: cfgStrength,
@@ -649,8 +671,15 @@ app.post('/api/playlist/:id/generate-song', async (req, res) => {
       });
     }
 
+    // Sample up to 10 random tracks (with previews) for faster analysis
+    const withPreviews = tracksWithDeezer.filter(t => t.deezer?.preview);
+    const sampled = withPreviews.length <= 10
+      ? withPreviews
+      : withPreviews.sort(() => Math.random() - 0.5).slice(0, 10);
+    console.log(`[generate] Sampling ${sampled.length}/${tracksWithDeezer.length} tracks for analysis`);
+
     const batchBody = {
-      tracks: tracksWithDeezer.map(t => ({
+      tracks: sampled.map(t => ({
         name: t.name,
         artist: t.artist,
         duration_ms: t.duration_ms,
@@ -660,10 +689,11 @@ app.post('/api/playlist/:id/generate-song', async (req, res) => {
 
     let analysisResults = [];
     let playlistSummary = null;
+    let generatedLyrics = null;
 
     const backendUrl = MODAL_URL || `${FLASK_URL}/analyze-batch`;
     const backendName = MODAL_URL ? 'Modal' : 'Flask';
-    console.log(`[analysis] Using ${backendName} backend: ${backendUrl}`);
+    console.log(`[generate] Using ${backendName} backend: ${backendUrl}`);
 
     try {
       const resp = await fetch(backendUrl, {
@@ -675,6 +705,7 @@ app.post('/api/playlist/:id/generate-song', async (req, res) => {
         const data = await resp.json();
         analysisResults = data.results || [];
         playlistSummary = data.playlist_summary || null;
+        generatedLyrics = data.generated_lyrics || null;
       } else {
         console.error(`${backendName} batch failed:`, resp.status);
       }
@@ -696,31 +727,29 @@ app.post('/api/playlist/:id/generate-song', async (req, res) => {
       return res.status(502).json({ error: 'No playlist summary returned from analysis backend', tracks: merged, playlist: { name: yt.name, totalTracks: yt.totalTracks } });
     }
 
-    // Call DiffRhythm using the summary as style prompt (not lyrics)
+    // Call ACE-Step using the summary as style prompt and generated lyrics
     const { options } = req.body || {};
-    const duration = Number(options?.duration || 95);
-    const lrc = '[00:00.00] Instrumental';
+    const lyrics = (options?.lyrics && typeof options.lyrics === 'string' && options.lyrics.trim())
+      ? options.lyrics.trim()
+      : (generatedLyrics || '');
     let drResult;
     try {
-      drResult = await callDiffRhythm(playlistSummary, lrc, {
-        duration,
-        steps: Number(options?.steps || 50),
-        cfg_strength: Number(options?.cfg_strength || 4.0),
-        seed: Number.isFinite(options?.seed) ? Number(options.seed) : 0,
-        randomize_seed: options?.randomize_seed !== false,
+      drResult = await callDiffRhythm(playlistSummary, lyrics, {
+        duration: Number.isFinite(Number(options?.duration))
+          ? clampDuration(options.duration)
+          : randomDuration(120, 240),
+        seed: Number.isFinite(options?.seed) ? Number(options.seed) : 1,
         file_type: options?.file_type || 'mp3',
-        odeint_method: options?.odeint_method || 'euler',
-        preference: options?.preference || 'speed first',
-        lrc_max_lines: options?.lrc_max_lines || 24,
       });
     } catch (err) {
-      return res.status(502).json({ error: err.message, tracks: merged, playlist: { name: yt.name, totalTracks: yt.totalTracks }, playlist_summary: playlistSummary });
+      return res.status(502).json({ error: err.message, tracks: merged, playlist: { name: yt.name, totalTracks: yt.totalTracks }, playlist_summary: playlistSummary, generated_lyrics: generatedLyrics });
     }
 
     res.json({
       playlist: { name: yt.name, totalTracks: yt.totalTracks },
       tracks: merged,
       playlist_summary: playlistSummary,
+      generated_lyrics: generatedLyrics,
       generated: { url: drResult.url },
     });
   } catch (e) {
@@ -945,11 +974,11 @@ app.get('/api/playlist/:id/deezer-previews', async (req, res) => {
           name: title,
           artists: artist,
           duration: t.duration,
-          thumbnail: t.thumbnail,
+          thumbnail: t.thumbnail || null,
           deezer: found,
         });
       } catch (e) {
-        out.push({ name: title, artists: artist, duration: t.duration, thumbnail: t.thumbnail, deezer: null, error: e.message });
+        out.push({ name: title, artists: artist, duration: t.duration, thumbnail: t.thumbnail || null, deezer: null, error: e.message });
       }
     }
 
@@ -1001,9 +1030,17 @@ app.get('/api/playlist/:id/analysis', async (req, res) => {
       });
     }
 
-    // 3. Send to analysis backend (Modal GPU preferred, Flask fallback)
+    // 3. Sample up to 10 random tracks (with previews) for faster analysis
+    const withPreviews = tracksWithDeezer
+      .map((t, i) => ({ ...t, _origIdx: i }))
+      .filter(t => t.deezer?.preview);
+    const sampled = withPreviews.length <= 10
+      ? withPreviews
+      : withPreviews.sort(() => Math.random() - 0.5).slice(0, 10);
+    console.log(`[analysis] Sampling ${sampled.length}/${tracksWithDeezer.length} tracks for analysis`);
+
     const batchBody = {
-      tracks: tracksWithDeezer.map(t => ({
+      tracks: sampled.map(t => ({
         name: t.name,
         artist: t.artist,
         duration_ms: t.duration_ms,
@@ -1035,9 +1072,11 @@ app.get('/api/playlist/:id/analysis', async (req, res) => {
       console.error(`${backendName} unavailable:`, err.message);
     }
 
-    // 4. Merge Deezer preview info + analysis
+    // 4. Merge analysis back into sampled tracks, leave others without analysis
+    const analysisMap = new Map();
+    sampled.forEach((t, i) => { analysisMap.set(t._origIdx, analysisResults[i] || {}); });
     const merged = tracksWithDeezer.map((t, i) => {
-      const analysis = analysisResults[i] || {};
+      const analysis = analysisMap.get(i) || {};
       return {
         ...t,
         audio_features: analysis.audio_features || null,

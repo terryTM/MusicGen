@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>MusicGen – Playlist Analyzer</title>
+    <title>MusicGen</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -926,7 +926,7 @@
   <body>
     <div class="container">
     <h1>
-      🎵 MusicGen – Playlist Analyzer
+      🎵 MusicGen
       <div class="tartanhacks-badge">
         <span class="tartanhacks-text">TartanHacks 2026</span>
         <span class="mosaic-text">MOSAIC</span>
@@ -948,7 +948,7 @@
         <button id="fetchBtn" class="btn-primary">🔍 Load Playlist</button>
         <button id="generateBtn" class="btn-generate" disabled>🎶 Generate Song</button>
         <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text-light);cursor:pointer;user-select:none;">
-          <input type="checkbox" id="vocalsCheckbox" style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer;"> Include vocals
+          <input type="checkbox" id="instrumentalCheckbox" style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer;"> Instrumental only
         </label>
       </div>
       <div style="margin-top:12px;text-align:center;">
@@ -983,6 +983,24 @@
       function setProgress(pct) {
         $("progressContainer").style.display = pct === null ? 'none' : 'block';
         if (pct !== null) $("progressFill").style.width = pct + '%';
+      }
+
+      // Simulated progress that smoothly fills to ~90% over estimatedMs
+      let _simInterval = null;
+      function startSimulatedProgress(estimatedMs) {
+        stopSimulatedProgress();
+        let pct = 5;
+        setProgress(pct);
+        const step = 200;
+        const totalSteps = estimatedMs / step;
+        const increment = 85 / totalSteps;
+        _simInterval = setInterval(() => {
+          pct = Math.min(pct + increment * (1 - pct / 100), 90);
+          setProgress(Math.round(pct));
+        }, step);
+      }
+      function stopSimulatedProgress() {
+        if (_simInterval) { clearInterval(_simInterval); _simInterval = null; }
       }
 
       // ── Audio player ────────────────────────
@@ -1214,13 +1232,13 @@
         if (!playlistId || tracksData.length === 0) return false;
 
         setStatus("🧠 Analyzing audio features and generating style profile…", 'status-analyzing');
-        setProgress(10);
+        startSimulatedProgress(60000);
 
         try {
           const resp = await fetch(`/api/playlist/${playlistId}/analysis`);
           if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || resp.status);
 
-          setProgress(40);
+          stopSimulatedProgress();
           const data = await resp.json();
 
           // Merge analysis into our store (keep data internally, hidden from UI)
@@ -1242,6 +1260,7 @@
           return true;
         } catch (e) {
           setStatus(`❌ Analysis failed: ${e.message}`, 'status-error');
+          stopSimulatedProgress();
           setProgress(null);
           return false;
         }
@@ -1250,7 +1269,7 @@
       // ── Generate song (analyze first if needed, then call DiffRhythm) ──
       $("generateBtn").onclick = async () => {
         if (!playlistId || tracksData.length === 0) return;
-        const withLyrics = $("vocalsCheckbox").checked;
+        const withLyrics = !$("instrumentalCheckbox").checked;
 
         $("generateBtn").disabled = true;
         $("generateBtn").textContent = '⏳ Working…';
@@ -1270,8 +1289,8 @@
         $("generateBtn").textContent = withLyrics ? '🎤 Generating with vocals…' : '🎶 Generating…';
         setStatus(withLyrics
           ? '🎤 Writing lyrics & generating song… This may take 2-4 minutes.'
-          : '🎵 Generating instrumental with DiffRhythm… This may take 1-3 minutes.', 'status-analyzing');
-        setProgress(50);
+          : '🎵 Generating song… This may take 2-4 minutes.', 'status-analyzing');
+        startSimulatedProgress(180000);
 
         // Remove any previous generated song card
         const prev = document.querySelector('.generated-song-card');
@@ -1283,10 +1302,10 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               prompt: cachedPlaylistSummary,
-              options: { duration: 95, steps: 50, file_type: 'mp3', withLyrics }
+              options: { steps: 50, file_type: 'mp3', withLyrics }
             })
           });
-          setProgress(90);
+          stopSimulatedProgress();
           if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || resp.status);
           const result = await resp.json();
           setProgress(100);
@@ -1321,6 +1340,7 @@
           setTimeout(() => setProgress(null), 2000);
         } catch (e) {
           setStatus(`❌ Song generation failed: ${e.message}`, 'status-error');
+          stopSimulatedProgress();
           setProgress(null);
         } finally {
           $("generateBtn").disabled = false;

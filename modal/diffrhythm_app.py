@@ -1,198 +1,149 @@
+"""
+ACE-Step music generation on Modal.
+Replaces DiffRhythm with ACE-Step for higher quality output.
+Based on: https://modal.com/docs/examples/generate_music
+
+Deploy:   modal deploy modal/diffrhythm_app.py
+Serve:    modal serve modal/diffrhythm_app.py
+"""
+
 import base64
 import os
-import random
-import tempfile
-from typing import Optional
+import traceback
+from pathlib import Path
+from uuid import uuid4
 
 import modal
 
-APP_NAME = "diffrhythm-host"
-DIFFRHYTHM_REPO = "https://huggingface.co/spaces/ASLP-lab/DiffRhythm"
+APP_NAME = "musicgen-ace-step"
+
+cache_dir = "/root/.cache/ace-step/checkpoints"
+model_cache = modal.Volume.from_name("ace-step-model-cache", create_if_missing=True)
+
+
+def _download_model():
+    """Pre-download model weights during image build so cold starts are fast."""
+    from acestep.pipeline_ace_step import ACEStepPipeline
+
+    ACEStepPipeline(dtype="bfloat16", cpu_offload=False, overlapped_decode=True)
+
 
 image = (
-    modal.Image.from_registry(
-        "nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04", add_python="3.10"
+    modal.Image.debian_slim(python_version="3.12")
+    .apt_install("git", "ffmpeg")
+    .pip_install(
+        "torch==2.8.0",
+        "torchaudio==2.8.0",
+        "git+https://github.com/ace-step/ACE-Step.git",
+        "fastapi[standard]",
+        "hf_transfer",
     )
-    .apt_install(
-        "git", "git-lfs", "ffmpeg", "espeak-ng",
-        "build-essential", "cmake", "make", "gcc", "g++",
-    )
-    .env({"CC": "gcc", "CXX": "g++"})
-    .run_commands(
-        "git lfs install",
-        f"git clone {DIFFRHYTHM_REPO} /opt/diffrhythm",
-        "pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu124 "
-        "torch==2.6.0+cu124 torchaudio==2.6.0+cu124",
-        "pip install --no-cache-dir -r /opt/diffrhythm/requirements.txt",
-        "pip install --no-cache-dir fastapi[standard] pydub",
-    )
-    .env({"PYTHONPATH": "/opt/diffrhythm"})
+    .env({"HF_HUB_CACHE": cache_dir, "HF_HUB_ENABLE_HF_TRANSFER": "1"})
+    .run_function(_download_model, volumes={cache_dir: model_cache})
 )
 
 app = modal.App(APP_NAME)
 
-MODEL_VOL = modal.Volume.from_name("diffrhythm-models", create_if_missing=True)
-
-_MODEL_CACHE = {}
+_model = None
 
 
-def _ensure_hf_env():
-    token = os.environ.get("HF_TOKEN")
-    if token:
-        os.environ["HUGGINGFACE_HUB_TOKEN"] = token
-    os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
-    os.environ.setdefault("HF_HOME", "/models/hf")
-    os.environ.setdefault("TRANSFORMERS_CACHE", "/models/hf")
+def _get_model():
+    global _model
+    if _model is None:
+        token = os.environ.get("HF_TOKEN")
+        if token:
+            os.environ["HUGGINGFACE_HUB_TOKEN"] = token
+        os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
+        from acestep.pipeline_ace_step import ACEStepPipeline
 
-
-def _load_models(max_frames: int, device: str):
-    key = (max_frames, device)
-    if key in _MODEL_CACHE:
-        return _MODEL_CACHE[key]
-
-    os.chdir("/opt/diffrhythm")
-    _ensure_hf_env()
-
-    from diffrhythm.infer.infer_utils import prepare_model
-
-    cfm, tokenizer, muq, vae, eval_model, eval_muq = prepare_model(max_frames, device)
-    _MODEL_CACHE[key] = (cfm, tokenizer, muq, vae, eval_model, eval_muq)
-    return _MODEL_CACHE[key]
-
-
-def _run_infer(
-    lyrics: str,
-    text_prompt: str,
-    duration: int = 95,
-    steps: int = 32,
-    cfg_strength: float = 4.0,
-    odeint_method: str = "euler",
-    preference: str = "quality first",
-    file_type: str = "mp3",
-    seed: int = 0,
-    randomize_seed: bool = True,
-    vocal_flag: bool = False,
-    negative_text_prompt: str = None,
-):
-    import torch
-    from diffrhythm.infer.infer import inference
-    from diffrhythm.infer.infer_utils import (
-        get_lrc_token,
-        get_negative_style_prompt,
-        get_reference_latent,
-        get_text_style_prompt,
-    )
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    max_frames = 2048 if duration == 95 else 6144
-    sway_sampling_coef = -1 if steps < 32 else None
-
-    if randomize_seed:
-        seed = random.randint(0, 2**31 - 1)
-    torch.manual_seed(seed)
-
-    cfm, tokenizer, muq, vae, eval_model, eval_muq = _load_models(max_frames, device)
-
-    lrc_prompt, start_time, end_frame, song_duration = get_lrc_token(
-        max_frames, lyrics, tokenizer, duration, device
-    )
-    style_prompt = get_text_style_prompt(muq, text_prompt)
-    negative_style_prompt = get_negative_style_prompt(device)
-    latent_prompt, pred_frames = get_reference_latent(
-        device, max_frames, False, None, None, vae
-    )
-
-    # The HF demo NEVER sets vocal_flag=True for text prompts.
-    # It always uses vocal.npy as negative_style_prompt (ensures good
-    # instrumentals) and relies on LRC tokens to drive vocals naturally.
-    # We do the same — no overrides. Vocals come from LRC content;
-    # instrumental quality comes from vocal.npy as CFG anti-target.
-    print(f"[_run_infer] style='{text_prompt[:60]}', neg=vocal.npy (default), vocal_flag=False (LRC-driven)")
-
-    batch_infer_num = 5 if preference == "quality first" else 1
-
-    output = inference(
-        cfm_model=cfm,
-        vae_model=vae,
-        eval_model=eval_model,
-        eval_muq=eval_muq,
-        cond=latent_prompt,
-        text=lrc_prompt,
-        duration=end_frame,
-        style_prompt=style_prompt,
-        negative_style_prompt=negative_style_prompt,
-        steps=steps,
-        cfg_strength=cfg_strength,
-        sway_sampling_coef=sway_sampling_coef,
-        start_time=start_time,
-        file_type=file_type,
-        vocal_flag=False,  # always False for text prompts, like the HF demo
-        odeint_method=odeint_method,
-        pred_frames=pred_frames,
-        batch_infer_num=batch_infer_num,
-        song_duration=song_duration,
-    )
-
-    if file_type == "wav":
-        # output is (sample_rate, np.ndarray)
-        import io
-        import soundfile as sf
-
-        sr, audio_np = output
-        buf = io.BytesIO()
-        sf.write(buf, audio_np, sr, format="WAV")
-        return buf.getvalue(), "wav"
-
-    # mp3/ogg returns raw bytes
-    return output, file_type
+        _model = ACEStepPipeline(
+            dtype="bfloat16", cpu_offload=False, overlapped_decode=True
+        )
+    return _model
 
 
 @app.function(
     image=image,
     gpu="A100",
-    timeout=60 * 60,
-    volumes={"/models": MODEL_VOL},
+    timeout=60 * 10,
+    volumes={cache_dir: model_cache},
     secrets=[modal.Secret.from_name("hf-token")],
 )
 @modal.fastapi_endpoint(method="POST")
 def generate(data: dict):
-    print(f"[generate] Received keys: {list(data.keys())}")
-    lyrics = (data.get("lyrics") or "").strip()
-    text_prompt = (data.get("text_prompt") or "").strip()
-    vocal_flag = bool(data.get("vocal_flag", False))
-    negative_text_prompt = (data.get("negative_text_prompt") or "").strip() or None
-    print(f"[generate] lyrics length={len(lyrics)}, preview={lyrics[:120]!r}")
-    print(f"[generate] vocal_flag={vocal_flag}, negative_text_prompt={negative_text_prompt!r}")
-    if not text_prompt:
-        return {"error": "text_prompt is required"}
+    try:
+        print(f"[generate] Received keys: {list(data.keys())}")
 
-    options = data.get("options") or {}
-    duration = int(options.get("duration", 95))
-    steps = int(options.get("steps", 32))
-    cfg_strength = float(options.get("cfg_strength", 4.0))
-    odeint_method = options.get("odeint_method", "euler")
-    preference = options.get("preference", "quality first")
-    file_type = options.get("file_type", "mp3")
-    seed = int(options.get("seed", 0))
-    randomize_seed = bool(options.get("randomize_seed", True))
+        text_prompt = (data.get("text_prompt") or "").strip()
+        lyrics = (data.get("lyrics") or "").strip()
+        if not text_prompt:
+            return {"error": "text_prompt is required"}
 
-    audio_bytes, out_type = _run_infer(
-        lyrics=lyrics,
-        text_prompt=text_prompt,
-        duration=duration,
-        steps=steps,
-        cfg_strength=cfg_strength,
-        odeint_method=odeint_method,
-        preference=preference,
-        file_type=file_type,
-        seed=seed,
-        randomize_seed=randomize_seed,
-        vocal_flag=vocal_flag,
-        negative_text_prompt=negative_text_prompt,
-    )
+        options = data.get("options") or {}
+        duration = float(options.get("duration", 240.0))
+        if duration < 30:
+            duration = 30.0
+        if duration > 240:
+            duration = 240.0
+        file_type = options.get("file_type", "mp3")
+        seed = int(options.get("seed", 1))
+        mode = (options.get("mode") or "quality").lower()
 
-    b64 = base64.b64encode(audio_bytes).decode("utf-8")
-    return {
-        "file_type": out_type,
-        "audio_base64": b64,
-    }
+        # Defaults tuned closer to ACE-Step v1.5 UI expectations.
+        if mode == "turbo":
+            infer_step = int(options.get("infer_step", 8))
+            guidance_scale = float(options.get("guidance_scale", 6.5))
+        else:
+            infer_step = int(options.get("infer_step", 32))
+            guidance_scale = float(options.get("guidance_scale", 7.0))
+        scheduler_type = options.get("scheduler_type", "euler")
+        cfg_type = options.get("cfg_type", "apg")
+        omega_scale = float(options.get("omega_scale", 10))
+        guidance_interval = float(options.get("guidance_interval", 0.5))
+        guidance_interval_decay = float(options.get("guidance_interval_decay", 0))
+        min_guidance_scale = float(options.get("min_guidance_scale", 3))
+        use_erg_tag = bool(options.get("use_erg_tag", True))
+        use_erg_lyric = bool(options.get("use_erg_lyric", True))
+        use_erg_diffusion = bool(options.get("use_erg_diffusion", True))
+
+        if not lyrics:
+            use_erg_lyric = False
+
+        print(f"[generate] prompt={text_prompt[:80]!r}...")
+        print(f"[generate] lyrics length={len(lyrics)}, duration={duration}s")
+
+        model = _get_model()
+
+        output_path = f"/dev/shm/output_{uuid4().hex}.{file_type}"
+
+        model(
+            audio_duration=duration,
+            prompt=text_prompt,
+            lyrics=lyrics,
+            format=file_type,
+            save_path=output_path,
+            manual_seeds=seed,
+            infer_step=infer_step,
+            guidance_scale=guidance_scale,
+            scheduler_type=scheduler_type,
+            cfg_type=cfg_type,
+            omega_scale=omega_scale,
+            guidance_interval=guidance_interval,
+            guidance_interval_decay=guidance_interval_decay,
+            min_guidance_scale=min_guidance_scale,
+            use_erg_tag=use_erg_tag,
+            use_erg_lyric=use_erg_lyric,
+            use_erg_diffusion=use_erg_diffusion,
+        )
+
+        audio_bytes = Path(output_path).read_bytes()
+        b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+        return {
+            "file_type": file_type,
+            "audio_base64": b64,
+        }
+    except Exception as e:
+        print("[generate] error:", e)
+        print(traceback.format_exc())
+        return {"error": str(e)}

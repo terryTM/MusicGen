@@ -316,6 +316,7 @@ def _energy_arc(quarters):
 
 
 def describe_track(name, artist, audio_feats, duration_ms, tags=None):
+    """Produce a concise description that leads with genre/instruments/mood."""
     sections = []
     header = f'"{name}" by {artist}'
     if duration_ms:
@@ -324,110 +325,63 @@ def describe_track(name, artist, audio_feats, duration_ms, tags=None):
     sections.append(header + ".")
 
     if not audio_feats and not tags:
-        sections.append("No audio preview was available; only metadata is known.")
+        sections.append("No audio preview available.")
         return " ".join(sections)
 
-    if audio_feats:
-        bpm = audio_feats.get("tempo_bpm", 0)
-        if bpm > 0:
-            reg = audio_feats.get("beat_regularity", 0)
-            reg_desc = (
-                "very steady, metronomic beat" if reg > 0.92
-                else "fairly regular beat" if reg > 0.75
-                else "somewhat loose or swung rhythm" if reg > 0.5
-                else "free-tempo or rubato feel"
-            )
-            sections.append(f"Tempo is {_tempo_descriptor(bpm)} at ~{int(round(bpm))} BPM with a {reg_desc}.")
-        onset_m = audio_feats.get("onset_strength_mean", 0)
-        if onset_m > 2.0: sections.append("Highly percussive with frequent transients.")
-        elif onset_m > 1.0: sections.append("Moderately percussive with clear rhythmic attacks.")
-        elif onset_m > 0.3: sections.append("Gentle rhythmic presence.")
-        else: sections.append("Minimal percussive elements; sustained or ambient texture.")
-
-    if audio_feats and audio_feats.get("estimated_key"):
-        key = audio_feats["estimated_key"]
-        mode = audio_feats.get("mode", "unknown")
-        conf = audio_feats.get("mode_confidence", 0)
-        conf_word = "strongly" if conf > 0.85 else "likely" if conf > 0.65 else "possibly"
-        sections.append(f"Key: {conf_word} {key} {mode}.")
-
-    if audio_feats and audio_feats.get("rms_mean") is not None:
-        sections.append("Dynamics: " + _dynamics_descriptor(audio_feats["rms_mean"], audio_feats.get("dynamic_range_db", 0)) + ".")
-    if audio_feats and audio_feats.get("energy_profile_quarters"):
-        sections.append("Energy arc: " + _energy_arc(audio_feats["energy_profile_quarters"]) + ".")
-    if audio_feats and audio_feats.get("spectral_centroid_mean") is not None:
-        sections.append("Spectral character: " + _spectral_descriptor(
-            audio_feats["spectral_centroid_mean"],
-            audio_feats.get("spectral_bandwidth_mean", 1500),
-            audio_feats.get("spectral_rolloff_mean", 3000),
-            audio_feats.get("spectral_flatness_mean", 0.01),
-        ) + ".")
-    if audio_feats and audio_feats.get("harmonic_ratio") is not None:
-        hr = audio_feats["harmonic_ratio"]
-        if hr > 0.85: sections.append("Predominantly harmonic/melodic content.")
-        elif hr > 0.6: sections.append("Good balance of melodic and percussive elements.")
-        else: sections.append("Percussion-dominated mix with strong transient energy.")
-
+    # --- Genre & sub-genre FIRST (most important for style) ---
     if tags:
         genres = tags.get("genre", [])
-        if genres:
-            sections.append("Detected genres: " + ", ".join(f'{t["label"]} ({t["prob"]:.0%})' for t in genres[:5]) + ".")
-
-        # Sub-genre inference: map broad PANNs genres to more specific styles
-        # based on audio features (PANNs has no trap, lo-fi, drill, synthwave, etc.)
         genre_labels = {g["label"] for g in genres}
-        inferred_subgenres = []
+        if genres:
+            sections.append("Genre: " + ", ".join(t["label"] for t in genres[:4]) + ".")
+
+        # Sub-genre inference
         bpm = audio_feats.get("tempo_bpm", 0) if audio_feats else 0
         centroid = audio_feats.get("spectral_centroid_mean", 2000) if audio_feats else 2000
         flatness = audio_feats.get("spectral_flatness_mean", 0.01) if audio_feats else 0.01
-        hr = audio_feats.get("harmonic_ratio", 0.5) if audio_feats else 0.5
         has_808 = any(t["label"] in ("Drum machine", "Bass drum") for t in tags.get("instrument", []))
         has_synth = any(t["label"] in ("Synthesizer", "Electronic organ") for t in tags.get("instrument", []))
 
+        inferred = []
         if "Hip hop music" in genre_labels:
-            if has_808 and bpm >= 130 and bpm <= 170:
-                inferred_subgenres.append("trap")
-            elif has_808 and bpm >= 130 and centroid > 3000:
-                inferred_subgenres.append("drill")
-            elif bpm < 100 and flatness < 0.02:
-                inferred_subgenres.append("lo-fi hip hop")
-            elif bpm >= 85 and bpm <= 115:
-                inferred_subgenres.append("boom bap")
+            if has_808 and bpm >= 130 and bpm <= 170: inferred.append("trap")
+            elif has_808 and bpm >= 130 and centroid > 3000: inferred.append("drill")
+            elif bpm < 100 and flatness < 0.02: inferred.append("lo-fi hip hop")
+            elif bpm >= 85 and bpm <= 115: inferred.append("boom bap")
         if "Electronic music" in genre_labels or "Electronic dance music" in genre_labels:
-            if bpm >= 120 and bpm <= 135 and has_synth:
-                inferred_subgenres.append("house")
-            elif bpm >= 135 and bpm <= 150:
-                inferred_subgenres.append("techno")
-            elif bpm >= 80 and bpm <= 115 and has_synth and centroid > 3000:
-                inferred_subgenres.append("synthwave")
-            elif centroid < 2000 and flatness < 0.01:
-                inferred_subgenres.append("ambient electronic")
+            if bpm >= 120 and bpm <= 135 and has_synth: inferred.append("house")
+            elif bpm >= 135 and bpm <= 150: inferred.append("techno")
+            elif bpm >= 80 and bpm <= 115 and has_synth: inferred.append("synthwave")
         if "Rhythm and blues" in genre_labels:
-            if has_808 or has_synth:
-                inferred_subgenres.append("contemporary R&B")
-            else:
-                inferred_subgenres.append("classic R&B")
-        if "Rock music" in genre_labels and centroid > 3500 and bpm >= 100:
-            inferred_subgenres.append("alternative rock")
+            inferred.append("contemporary R&B" if (has_808 or has_synth) else "classic R&B")
 
-        if inferred_subgenres:
-            sections.append("Inferred sub-genre(s): " + ", ".join(inferred_subgenres) + ".")
+        if inferred:
+            sections.append("Sub-genre: " + ", ".join(inferred) + ".")
 
+        # Instruments
         instruments = tags.get("instrument", [])
         if instruments:
-            sections.append("Detected instruments: " + ", ".join(f'{t["label"]} ({t["prob"]:.0%})' for t in instruments[:5]) + ".")
+            sections.append("Instruments: " + ", ".join(t["label"] for t in instruments[:5]) + ".")
+
+        # Vocals
         vocals = tags.get("vocal", [])
-        vocal_prob_max = tags.get("_vocal_prob_max", 0.0)
-        genres = tags.get("genre", [])
-        genre_labels = {g["label"] for g in genres}
         has_vocal_genre = bool(genre_labels & _VOCAL_GENRES)
-        
         if vocals:
-            sections.append("Vocal character: " + ", ".join(f'{t["label"]} ({t["prob"]:.0%})' for t in vocals[:3]) + ".")
-        elif has_vocal_genre and vocal_prob_max > 0.005:
-            sections.append(f"Possible vocals detected (confidence {vocal_prob_max:.1%}), common in this genre.")
-        else:
-            sections.append("Likely instrumental (no strong vocal signal detected).")
+            sections.append("Vocals: " + ", ".join(t["label"] for t in vocals[:3]) + ".")
+        elif has_vocal_genre:
+            sections.append("Likely has vocals (genre suggests it).")
+
+    # --- Minimal audio context (tempo + mood cues only) ---
+    if audio_feats:
+        bpm = audio_feats.get("tempo_bpm", 0)
+        if bpm > 0:
+            sections.append(f"~{int(round(bpm))} BPM.")
+
+        # Mood cue from key mode
+        mode = audio_feats.get("mode", "")
+        key = audio_feats.get("estimated_key", "")
+        if key and mode:
+            sections.append(f"Key: {key} {mode}.")
 
     return " ".join(sections)
 
@@ -448,21 +402,12 @@ def summarise_playlist_with_gpt4(track_descriptions):
             {
                 "role": "system",
                 "content": (
-                    "You are a music analysis expert. The user will give you per-track audio "
-                    "analysis descriptions for an entire playlist. Your job is to synthesise "
-                    "them into a SINGLE concise music-generation style prompt that focuses "
-                    "exclusively on INSTRUMENTAL and PRODUCTION characteristics.\n\n"
-                    "The prompt should capture:\n"
-                    "- Dominant genre(s) and sub-genres\n"
-                    "- Overall mood and emotional arc\n"
-                    "- Typical tempo range and rhythmic feel\n"
-                    "- Key instrumentation (guitars, synths, drums, bass, strings, etc.)\n"
-                    "- Production style and sonic texture (lo-fi, polished, reverb-heavy, etc.)\n"
-                    "- Energy level, dynamics, and arrangement style\n\n"
-                    "Do NOT mention vocals, singing, or vocal characteristics — this prompt "
-                    "will be used as an instrumental style reference for music generation.\n\n"
-                    "Output ONLY the instrumental style prompt, nothing else. "
-                    "Keep it under 200 words. Be specific and vivid."
+                    "Given per-track audio analyses of a playlist, write a TWO-SENTENCE "
+                    "style prompt for a music generator. Lead with the specific genre/sub-genre "
+                    "(e.g. 'dark Atlanta trap', 'melodic R&B', 'boom bap hip-hop'), then mention "
+                    "mood, key instruments, and tempo feel. Be concrete about mood — if the music "
+                    "is dark, aggressive, melancholic, or hype, say so explicitly. "
+                    "No technical jargon, no spectral analysis, no numbers."
                 ),
             },
             {
