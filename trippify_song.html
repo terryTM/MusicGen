@@ -25,6 +25,7 @@
         width: 100vw;
         height: 100vh;
         display: block;
+        z-index: 1;
       }
 
       .controls {
@@ -184,6 +185,45 @@
         transform: translate(-50%, -50%) translateY(-200%);
       }
 
+      .show-hide-btn {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 101;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        color: rgba(255, 255, 255, 0.6);
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.2s;
+        opacity: 0.5;
+      }
+
+      .show-hide-btn:hover {
+        background: rgba(0, 0, 0, 0.5);
+        color: rgba(255, 255, 255, 0.9);
+        opacity: 1;
+      }
+
+      .page-dimmer {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.15);
+        z-index: 50;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+      }
+
+      .page-dimmer.active {
+        opacity: 1;
+      }
+
       .preset-controls-section {
         margin-top: 20px;
         padding-top: 20px;
@@ -282,6 +322,9 @@
 
   <body>
     <canvas id="canvas"></canvas>
+    <div class="page-dimmer" id="pageDimmer"></div>
+
+    <button class="show-hide-btn" id="showHideBtn" style="display: none;">Hide Controls</button>
 
     <div class="controls" id="controls">
       <div class="status" id="status">Loading...</div>
@@ -296,7 +339,7 @@
         
         <div class="preset-controls-section">
           <div class="control-section">
-            <label for="presetSelect">Select Preset:</label>
+            <label for="presetSelect">Preset:</label>
             <select id="presetSelect">
               <option value="">Loading presets...</option>
             </select>
@@ -335,6 +378,8 @@
       const status = document.getElementById('status');
       const audioControls = document.getElementById('audioControls');
       const controls = document.getElementById('controls');
+      const showHideBtn = document.getElementById('showHideBtn');
+      const pageDimmer = document.getElementById('pageDimmer');
 
       // Check WebGL 2 support
       function checkWebGL2Support() {
@@ -530,6 +575,7 @@
 
           // Show audio controls
           audioControls.classList.add('visible');
+          showHideBtn.style.display = 'block';
 
           // Handle successful audio load
           audio.addEventListener('canplay', () => {
@@ -629,6 +675,7 @@
 
           // Show audio controls
           audioControls.classList.add('visible');
+          showHideBtn.style.display = 'block';
 
           // Handle successful audio load
           audio.addEventListener('canplay', () => {
@@ -670,16 +717,19 @@
             }
             startRenderLoop();
             updateStatus('Playing', '');
+            pageDimmer.classList.add('active');
           });
 
           // Handle pause
           audio.addEventListener('pause', () => {
             updateStatus('Paused', '');
+            pageDimmer.classList.remove('active');
           });
 
           // Handle audio end
           audio.addEventListener('ended', () => {
             updateStatus('Playback finished', '');
+            pageDimmer.classList.remove('active');
           });
 
         } catch (error) {
@@ -705,9 +755,16 @@
         loadPrevPreset();
       });
 
-      // Keyboard navigation for presets and spacebar controls
+      // Show/hide controls button
+      showHideBtn.addEventListener('click', () => {
+        controls.classList.toggle('minimized');
+        const isMinimized = controls.classList.contains('minimized');
+        showHideBtn.textContent = isMinimized ? 'Show Controls' : 'Hide Controls';
+      });
+
+      // Keyboard navigation for presets, spacebar controls, and Enter for play/pause
       document.addEventListener('keydown', (e) => {
-        // Only handle arrow keys when not typing in inputs
+        // Only handle special keys when not typing in inputs
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
           return;
         }
@@ -721,6 +778,17 @@
         } else if (e.key === ' ') {
           e.preventDefault();
           controls.classList.toggle('minimized');
+          const isMinimized = controls.classList.contains('minimized');
+          showHideBtn.textContent = isMinimized ? 'Show Controls' : 'Hide Controls';
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          if (audio) {
+            if (audio.paused) {
+              audio.play().catch(() => {});
+            } else {
+              audio.pause();
+            }
+          }
         }
       });
 

@@ -77,6 +77,11 @@ app.get('/trippify_song', (req, res) => {
   res.sendFile(__dirname + '/trippify_song.html');
 });
 
+// Favicon route to prevent 404 errors
+app.get('/favicon.ico', (req, res) => {
+  res.status(204).send();
+});
+
 // Audio proxy endpoint to bypass CORS
 app.get('/api/proxy-audio', async (req, res) => {
   const audioUrl = req.query.url;
