@@ -152,6 +152,56 @@
           opacity: 0.8; 
         }
       }
+      
+      /* TartanHacks Badge */
+      .tartanhacks-badge {
+        position: absolute;
+        top: -12px;
+        right: -20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: linear-gradient(135deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #feca57, #ff9ff3);
+        padding: 8px 16px;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: white;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        animation: mosaicShimmer 3s ease-in-out infinite;
+        transform: rotate(8deg);
+        z-index: 10;
+      }
+      
+      .tartanhacks-text {
+        font-size: 0.6rem;
+        margin-bottom: 2px;
+        opacity: 0.9;
+      }
+      
+      .mosaic-text {
+        font-size: 0.8rem;
+        font-weight: 800;
+        background: linear-gradient(45deg, #fff, #f0f0f0);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      
+      @keyframes mosaicShimmer {
+        0%, 100% { 
+          background: linear-gradient(135deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #feca57, #ff9ff3);
+          transform: rotate(8deg) scale(1);
+        }
+        50% { 
+          background: linear-gradient(135deg, #4ecdc4, #45b7d1, #96ceb4, #feca57, #ff9ff3, #ff6b6b);
+          transform: rotate(6deg) scale(1.05);
+        }
+      }
+      
       button { 
         padding: 14px 24px;
         margin: 8px 8px 8px 0;
@@ -191,10 +241,37 @@
         margin-bottom: 24px;
         box-shadow: var(--shadow);
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
       }
       .card:hover {
         transform: translateY(-2px);
         box-shadow: var(--shadow-hover);
+      }
+      
+      .card::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, 
+          transparent 0%, 
+          rgba(255, 107, 107, 0.1) 15%, 
+          rgba(78, 205, 196, 0.1) 30%, 
+          rgba(69, 183, 209, 0.1) 45%, 
+          rgba(150, 206, 180, 0.1) 60%, 
+          rgba(254, 202, 87, 0.1) 75%, 
+          transparent 100%);
+        border-radius: 18px;
+        z-index: -1;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+      
+      .card:hover::before {
+        opacity: 1;
       }
       
       .card-input {
@@ -302,6 +379,19 @@
         }
         .card:not(.card-input) {
           max-width: 100%;
+        }
+        .tartanhacks-badge {
+          top: -8px;
+          right: -10px;
+          padding: 6px 12px;
+          font-size: 0.6rem;
+          transform: rotate(6deg);
+        }
+        .tartanhacks-text {
+          font-size: 0.5rem;
+        }
+        .mosaic-text {
+          font-size: 0.7rem;
         }
       }
       
@@ -659,6 +749,10 @@
     <div class="container">
     <h1>
       🎵 MusicGen – Playlist Analyzer
+      <div class="tartanhacks-badge">
+        <span class="tartanhacks-text">TartanHacks 2026</span>
+        <span class="mosaic-text">MOSAIC</span>
+      </div>
       <div class="music-notes">
         <div class="music-note">♪</div>
         <div class="music-note">♫</div>
